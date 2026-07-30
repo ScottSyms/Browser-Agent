@@ -22,14 +22,14 @@ import {
 import { labelColorClass } from '../shared/labelColors';
 import { visibleToProject } from '../shared/memoryGraph';
 import type { SidebarCommand } from '../shared/messages';
-import type { ChatMessageView, ConversationLabel, ConversationSummary } from '../shared/types';
+import type { ConversationLabel, ConversationSummary } from '../shared/types';
+import { getConversation, getConversationIndex } from '../background/storage';
 import { downloadBlob, exportConversationHtml } from './conversationExport';
 import { useT } from './i18n';
 import { LabelPicker } from './LabelPicker';
 
 const INDEX_KEY = 'ba_conv_index';
 const LABELS_KEY = 'ba_conv_labels';
-const BODY_PREFIX = 'ba_conv_';
 
 const svgProps = {
   width: 15,
@@ -91,14 +91,19 @@ export function ConversationsScreen({ send, onClose }: Props) {
   // runtime (or this screen, or the Workspace Projects page) rewrites any of them,
   // so the list and chips stay live.
   useEffect(() => {
-    const load = () =>
-      chrome.storage.local.get([INDEX_KEY, LABELS_KEY, 'ba_active_project']).then((r) => {
-        const index = Array.isArray(r[INDEX_KEY]) ? (r[INDEX_KEY] as ConversationSummary[]) : [];
-        setItems([...index].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+    const load = () => {
+      // Titles/previews are decrypted here via getConversationIndex (they are
+      // stored encrypted when a vault is active; a locked vault yields "🔒 Locked"
+      // placeholders). Labels and the active project are plaintext structural data.
+      void getConversationIndex().then((index) =>
+        setItems([...index].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))),
+      );
+      void chrome.storage.local.get([LABELS_KEY, 'ba_active_project']).then((r) => {
         setLabels(Array.isArray(r[LABELS_KEY]) ? (r[LABELS_KEY] as ConversationLabel[]) : []);
         const active = r.ba_active_project;
         setActiveProjectId(typeof active === 'string' && active ? active : null);
       });
+    };
     void load();
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area === 'local' && (changes[INDEX_KEY] || changes[LABELS_KEY] || changes.ba_active_project)) void load();
@@ -173,19 +178,20 @@ export function ConversationsScreen({ send, onClose }: Props) {
   };
 
   const exportOne = async (id: string) => {
-    const key = `${BODY_PREFIX}${id}`;
-    const r = await chrome.storage.local.get(key);
-    const body = r[key] as { messages?: ChatMessageView[] } | undefined;
+    // getConversation decrypts vault-encrypted bodies (null if the vault is locked).
+    const body = await getConversation(id);
     if (body?.messages?.length) exportConversationHtml(body.messages);
+    else if (!body) setNotice({ ok: false, text: 'Unavailable — unlock the encryption vault to open this conversation.' });
   };
 
   // Save one conversation to a portable, re-importable JSON file. Bundle the
   // definitions of any labels it carries so they re-register on import elsewhere.
   const saveOne = async (item: ConversationSummary) => {
-    const key = `${BODY_PREFIX}${item.id}`;
-    const r = await chrome.storage.local.get(key);
-    const body = r[key];
-    if (!body) return;
+    const body = await getConversation(item.id);
+    if (!body) {
+      setNotice({ ok: false, text: 'Unavailable — unlock the encryption vault to open this conversation.' });
+      return;
+    }
     const defs = (item.labels ?? [])
       .map((id) => labelById.get(id))
       .filter((l): l is ConversationLabel => !!l);
