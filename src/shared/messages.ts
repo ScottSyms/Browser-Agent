@@ -116,6 +116,7 @@ export type BackgroundEvent =
 export type RuntimeRequest =
   | { type: 'test_connection'; settings: Settings }
   | { type: 'repo_list' }
+  | { type: 'job_control'; action: 'pause' | 'resume' | 'cancel' | 'delete'; id: string }
   | { type: 'repo_delete'; repo: string }
   | { type: 'repo_docs'; repo: string }
   | { type: 'repo_doc_delete'; repo: string; docId: string }

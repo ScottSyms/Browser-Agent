@@ -46,6 +46,9 @@ import {
 } from './sharepointIngest';
 import { connectMailbox, disconnectMailbox, isMailboxConnected } from './graphAuth';
 import { cancelScheduledTask, getScheduledRuns, getScheduledTasks, reconcileScheduledAlarms, runScheduledTaskById, setScheduledTaskEnabled, taskIdFromAlarm } from './scheduler';
+import { cancelJob, jobIdFromAlarm, pauseJob, reconcileJobs, resumeJob, tick } from './jobEngine';
+import { deleteJob } from './jobStore';
+import './researchJob'; // side-effect: registers the 'research' job type with the engine
 import {
   createEventTrigger,
   createWorkflow,
@@ -142,6 +145,7 @@ async function runMemoryDecaySweep(): Promise<void> {
 void syncMailAlarm();
 void syncMemoryDecayAlarm();
 void reconcileScheduledAlarms();
+void reconcileJobs(); // re-arm alarms for durable jobs interrupted by eviction
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
@@ -154,6 +158,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === MEMORY_DECAY_ALARM) void runMemoryDecaySweep();
   const scheduledTaskId = taskIdFromAlarm(alarm.name);
   if (scheduledTaskId) void runScheduledTaskById(scheduledTaskId, runtime);
+  const jobId = jobIdFromAlarm(alarm.name);
+  if (jobId) void tick(jobId);
 });
 
 // Event triggers: a completed navigation is the only signal we watch for now
@@ -376,6 +382,16 @@ chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResp
   }
   if (request.type === 'repo_list') {
     repoList().then((r) => sendResponse(r.ok ? r.result : []));
+    return true;
+  }
+  if (request.type === 'job_control') {
+    const { action, id } = request;
+    const op =
+      action === 'pause' ? pauseJob(id)
+      : action === 'resume' ? resumeJob(id)
+      : action === 'cancel' ? cancelJob(id)
+      : /* delete */ cancelJob(id).then(() => deleteJob(id));
+    op.then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
   if (request.type === 'repo_delete') {

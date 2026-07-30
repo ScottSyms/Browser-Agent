@@ -29,6 +29,7 @@ import { redactArgs, sha256Hex, type AuditEvent } from '../shared/audit';
 import { appendAuditEvent, deleteAuditLog } from '../shared/auditLog';
 import { clearCheckpoint, readCheckpoint, writeCheckpoint } from '../shared/checkpoint';
 import { buildResumePrompt, MAX_RECOVERY_ATTEMPTS, reconcileTabs, shouldAutoResume } from '../shared/recovery';
+import { getVaultState } from './vault';
 import type { BackgroundEvent } from '../shared/messages';
 import { MEMORY_TOOL_DEFINITIONS, TOOL_DEFINITIONS } from '../shared/schemas';
 import { LANGUAGE_STORAGE_KEY, resolveLang, translate, type LangPref } from '../sidebar/i18n';
@@ -79,6 +80,9 @@ import type { M365SearchFilters } from '../shared/microsoftSearch';
 import { captureFullPage } from './fullPageCapture';
 import { mcpCallTool, mcpListTools } from './mcpClient';
 import { complete, embedChunks, embedderId, LLM_TIMEOUT_MS, resolveModelForRole, type ContentPart, type LlmMessage, type LlmToolCall } from './llmProvider';
+import { extractJsonObject, runScopedSubtask, type ScopedSubtaskInput } from './scopedSubtask';
+import { startJob } from './jobEngine';
+import { DEFAULT_RESEARCH_LIMITS } from '../shared/jobs';
 import { deriveStepBudget, findSimilarLesson, parseLesson, parseReflectionVerdict, parseSummaryArray, relevantLessons, repairToolPairing, withMergedSystemState } from './loopHelpers';
 import { generateDocument, generatePresentation, productSave, repoDeleteDoc, repoDocs, repoList, repoSearch } from './offscreenClient';
 import { normalizeSlides } from '../shared/slides';
@@ -178,15 +182,6 @@ function emailBodyType(value: unknown): 'Text' | 'HTML' {
 
 function emailImportance(value: unknown): 'Low' | 'Normal' | 'High' {
   return value === 'Low' || value === 'High' ? value : 'Normal';
-}
-
-function extractJsonObject(text: string): unknown {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)?.[1];
-  const raw = fenced ?? text;
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('No JSON object found.');
-  return JSON.parse(raw.slice(start, end + 1));
 }
 
 function uniqueQueries(original: string, variants: unknown): string[] {
@@ -324,38 +319,8 @@ const READ_ONLY_TOOLS = new Set([
   'query_pointer_target',
 ]);
 
-const SCOPED_SUBTASK_ALLOWED = new Set([
-  'get_active_tab',
-  'get_tab_content',
-  'read_app_content',
-  'open_url',
-  'search_web',
-  'read_pdf',
-  'read_office_document',
-  'get_video_transcript',
-  'list_repos',
-  'search_repo',
-  'microsoft365_search',
-  'calendar_search',
-]);
-
-const SCOPED_SUBTASK_TOOLS = TOOL_DEFINITIONS.filter((t) => SCOPED_SUBTASK_ALLOWED.has(t.function.name));
-
-interface ScopedSubtaskInput {
-  id: string;
-  objective: string;
-  tabId?: number;
-  url?: string;
-  context?: string;
-}
-
-interface ScopedSubtaskResult {
-  id: string;
-  conclusion: string;
-  sources: string[];
-  stepsUsed: number;
-  error?: string;
-}
+// Scoped sub-agent execution (runScopedSubtask, tool set, result parsing) lives
+// in ./scopedSubtask so the durable job engine can reuse it outside a live turn.
 
 /** Turn inserted @bookmark / #repo mentions into an explicit, act-on-it directive. */
 /** Base64-encode bytes in chunks (avoids a huge spread that overflows the stack). */
@@ -1522,7 +1487,11 @@ export class AgentRuntime {
     }
     const record = await getConversation(id);
     if (!record) {
-      this.emit({ type: 'error', message: 'That conversation could not be found (it may have been deleted).' });
+      const message =
+        (await getVaultState()) === 'locked'
+          ? 'Unlock the encryption vault to open this conversation.'
+          : 'That conversation could not be found (it may have been deleted).';
+      this.emit({ type: 'error', message });
       return;
     }
     this.conversation = record.conversation ?? [];
@@ -2353,7 +2322,14 @@ export class AgentRuntime {
       .filter((t): t is ScopedSubtaskInput => t !== null);
     if (tasks.length === 0) return 'Error: run_subtasks needs at least one task with an objective.';
     const maxSteps = Math.min(8, Math.max(1, Math.floor(Number(args.maxSteps) || 4)));
-    const results = await this.mapWithConcurrency(tasks, 3, (task) => this.runScopedSubtask(settings, task, maxSteps));
+    const results = await this.mapWithConcurrency(tasks, 3, (task) =>
+      runScopedSubtask(settings, task, {
+        maxSteps,
+        dispatch: (name, a) => this.dispatchTool(name, a),
+        shouldStop: () => this.stopRequested,
+        signal: this.makeSignal(),
+      }),
+    );
     return JSON.stringify({ results });
   }
 
@@ -2369,75 +2345,6 @@ export class AgentRuntime {
     });
     await Promise.all(workers);
     return out;
-  }
-
-  private async runScopedSubtask(settings: Settings, task: ScopedSubtaskInput, maxSteps: number): Promise<ScopedSubtaskResult> {
-    const fallbackSources = [task.url, task.tabId !== undefined ? `tab:${task.tabId}` : undefined].filter((s): s is string => Boolean(s));
-    const messages: LlmMessage[] = [
-      {
-        role: 'system',
-        content:
-          'You are a scoped sub-agent running inside a larger browser task. Solve ONLY the assigned subtask. Keep your context small. Use only the provided tools to inspect the assigned page/source; do not perform state-changing actions. When done, reply ONLY JSON: {"conclusion":"<compact answer with key facts>","sources":["<url or source id>"]}. No prose or code fence.',
-      },
-      {
-        role: 'user',
-        content:
-          `Subtask id: ${task.id}\n` +
-          `Objective: ${task.objective}\n` +
-          (task.tabId !== undefined ? `Existing tabId: ${task.tabId}\nStart by reading this tab with get_tab_content unless another reader is clearly better.\n` : '') +
-          (task.url ? `URL: ${task.url}\nOpen/read this URL if needed. For PDF/Office URLs, use read_pdf/read_office_document directly.\n` : '') +
-          (task.context ? `Parent context:\n${task.context.slice(0, 2000)}\n` : ''),
-      },
-    ];
-    const scopedSettings = { ...resolveModelForRole(settings, 'plan'), maxTokens: Math.min(settings.maxTokens ?? 800, 800), temperature: 0 };
-    let stepsUsed = 0;
-    try {
-      for (; stepsUsed < maxSteps; stepsUsed++) {
-        if (this.stopRequested) return { id: task.id, conclusion: '', sources: fallbackSources, stepsUsed, error: 'Task stopped by user.' };
-        const reply = await complete(scopedSettings, messages, SCOPED_SUBTASK_TOOLS, this.makeSignal());
-        if (!reply.tool_calls || reply.tool_calls.length === 0) {
-          return this.parseScopedSubtaskResult(task.id, reply.content ?? '', stepsUsed, fallbackSources);
-        }
-        messages.push({ role: 'assistant', content: reply.content, tool_calls: reply.tool_calls });
-        for (const call of reply.tool_calls) {
-          const result = await this.executeScopedSubtaskTool(call);
-          messages.push({ role: 'tool', tool_call_id: call.id, content: result });
-        }
-      }
-      messages.push({ role: 'user', content: 'Step budget reached. Return your best final JSON conclusion now with no tool calls.' });
-      const reply = await complete(scopedSettings, messages, undefined, this.makeSignal());
-      return this.parseScopedSubtaskResult(task.id, reply.content ?? '', stepsUsed, fallbackSources);
-    } catch (e) {
-      return { id: task.id, conclusion: '', sources: fallbackSources, stepsUsed, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-
-  private async executeScopedSubtaskTool(call: LlmToolCall): Promise<string> {
-    const name = call.function.name;
-    if (!SCOPED_SUBTASK_ALLOWED.has(name)) return `Error: tool ${name} is not available inside scoped subtasks.`;
-    let args: Record<string, unknown>;
-    try {
-      args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
-    } catch {
-      return `Error: could not parse arguments for ${name}.`;
-    }
-    try {
-      return await this.dispatchTool(name, args);
-    } catch (e) {
-      return `Error from ${name}: ${e instanceof Error ? e.message : String(e)}`;
-    }
-  }
-
-  private parseScopedSubtaskResult(id: string, text: string, stepsUsed: number, fallbackSources: string[]): ScopedSubtaskResult {
-    const raw = String(text ?? '').trim();
-    try {
-      const obj = extractJsonObject(raw) as { conclusion?: unknown; sources?: unknown };
-      const conclusion = String(obj.conclusion ?? '').trim();
-      const sources = Array.isArray(obj.sources) ? obj.sources.map(String).map((s) => s.trim()).filter(Boolean) : [];
-      return { id, conclusion: conclusion || raw, sources: sources.length ? sources : fallbackSources, stepsUsed };
-    } catch {
-      return { id, conclusion: raw || '(no conclusion)', sources: fallbackSources, stepsUsed };
-    }
   }
 
   /** Rough char count of a message's content (string or multimodal parts). */
@@ -2863,7 +2770,7 @@ export class AgentRuntime {
         return JSON.stringify(await browser.navigate(tabId, url));
       }
       case 'search_web': {
-        const result = await browser.searchWeb(String(args.query), this.unattended);
+        const result = await browser.searchWeb(String(args.query));
         if (result.tabId > 0) await this.addToConversationGroup(result.tabId);
         return JSON.stringify({ ...result, group: this.groupName });
       }
@@ -3004,6 +2911,23 @@ export class AgentRuntime {
         } catch (e) {
           return `Error reading Outlook calendar: ${e instanceof Error ? e.message : String(e)}`;
         }
+      }
+      case 'start_research_job': {
+        const objective = String(args.objective ?? '').trim();
+        if (!objective) return 'Error: start_research_job needs an objective.';
+        const title = String(args.title ?? '').trim() || objective.slice(0, 60);
+        const limits = {
+          ...DEFAULT_RESEARCH_LIMITS,
+          ...(Number.isFinite(Number(args.maxSources)) ? { maxSources: Math.max(1, Math.min(300, Math.floor(Number(args.maxSources)))) } : {}),
+          ...(Number.isFinite(Number(args.maxDepth)) ? { maxDepth: Math.max(0, Math.min(4, Math.floor(Number(args.maxDepth)))) } : {}),
+        };
+        const job = await startJob('research', objective, title, limits);
+        return JSON.stringify({
+          ok: true,
+          jobId: job.id,
+          title: job.title,
+          message: 'Deep-research job started in the background. It will keep running (even if this panel closes) and save a cited report to Products when done. Track and control it in the Jobs console.',
+        });
       }
       case 'schedule_task': {
         const recurrenceArg = args.recurrence as Record<string, unknown> | undefined;
