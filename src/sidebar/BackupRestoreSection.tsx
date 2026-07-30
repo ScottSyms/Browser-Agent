@@ -4,10 +4,11 @@ import type { Settings } from '../shared/types';
 import {
   conversationBackupKeys,
   exportConversationsForBackup,
+  getSettingsForEdit,
   importConversationsFromBackup,
   sealSecretsAtRest,
 } from '../background/storage';
-import { getVaultState, vaultDecrypt } from '../background/vault';
+import { getVaultState } from '../background/vault';
 import { saveFile } from './download';
 import { useT } from './i18n';
 
@@ -48,23 +49,21 @@ export function BackupRestoreSection({ defaultOpen = false }: { defaultOpen?: bo
         // Decrypted index + bodies (portable), via the storage layer.
         Object.assign(storage, await exportConversationsForBackup());
       }
-      if (includeKey && storage.ba_settings && typeof storage.ba_settings === 'object') {
-        // Decrypt the key(s) at rest so the backup carries a usable value.
-        const s = storage.ba_settings as Settings;
-        storage.ba_settings = {
-          ...s,
-          apiKey: (await vaultDecrypt(s.apiKey ?? '')) ?? '',
-          ...(s.ideogramApiKey ? { ideogramApiKey: (await vaultDecrypt(s.ideogramApiKey)) ?? '' } : {}),
-        };
-      }
-      if (!includeKey && storage.ba_settings && typeof storage.ba_settings === 'object') {
-        // Strip the main key and the optional per-service override keys.
-        storage.ba_settings = {
-          ...(storage.ba_settings as object),
-          apiKey: '',
-          embeddingApiKey: '',
-          transcriptionApiKey: '',
-        };
+      if (storage.ba_settings && typeof storage.ba_settings === 'object') {
+        if (includeKey) {
+          // getSettingsForEdit decrypts every secret field at rest (apiKey +
+          // ideogram/embedding/transcription overrides) so the backup is portable.
+          storage.ba_settings = (await getSettingsForEdit()).settings;
+        } else {
+          // Scrub every secret field.
+          storage.ba_settings = {
+            ...(storage.ba_settings as Settings),
+            apiKey: '',
+            ideogramApiKey: '',
+            embeddingApiKey: '',
+            transcriptionApiKey: '',
+          };
+        }
       }
       if (!includeKey && Array.isArray(storage.ba_sites)) {
         // MCP server tokens live in the hints directory — scrub them too.

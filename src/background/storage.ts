@@ -86,6 +86,11 @@ export interface StoredConversation {
 // When an encryption vault is configured (see vault.ts), secret fields are
 // stored as `enc:v1:` envelopes; getSettings transparently decrypts them, and a
 // *locked* vault yields null so the agent stays inert until the user unlocks.
+// Optional per-service secret overrides, encrypted at rest alongside `apiKey`.
+// `apiKey` is handled separately because it is required and drives the
+// locked⇒null behavior.
+export const OPTIONAL_SECRET_FIELDS = ['ideogramApiKey', 'embeddingApiKey', 'transcriptionApiKey'] as const;
+
 export async function getSettings(): Promise<Settings | null> {
   const result = await chrome.storage.local.get(SETTINGS_KEY);
   const settings = result[SETTINGS_KEY] as Settings | undefined;
@@ -93,9 +98,8 @@ export async function getSettings(): Promise<Settings | null> {
   const apiKey = await vaultDecrypt(settings.apiKey);
   if (apiKey === null) return null; // encrypted but vault locked/erased
   const out: Settings = { ...settings, apiKey };
-  if (settings.ideogramApiKey) {
-    const ideo = await vaultDecrypt(settings.ideogramApiKey);
-    out.ideogramApiKey = ideo ?? undefined;
+  for (const f of OPTIONAL_SECRET_FIELDS) {
+    if (settings[f]) out[f] = (await vaultDecrypt(settings[f]!)) ?? undefined;
   }
   return out;
 }
@@ -113,9 +117,8 @@ export async function getSettingsForEdit(): Promise<{ settings: Settings; locked
     if (dec === null) return { settings: { ...settings, apiKey: '' }, locked: true };
     settings.apiKey = dec;
   }
-  if (settings.ideogramApiKey) {
-    const dec = await vaultDecrypt(settings.ideogramApiKey);
-    settings.ideogramApiKey = dec ?? undefined;
+  for (const f of OPTIONAL_SECRET_FIELDS) {
+    if (settings[f]) settings[f] = (await vaultDecrypt(settings[f]!)) ?? undefined;
   }
   return { settings, locked: false };
 }
@@ -127,7 +130,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
     throw new Error('The encryption vault is locked. Unlock it before saving connection settings.');
   }
   const toStore: Settings = { ...settings, apiKey: await vaultEncrypt(settings.apiKey) };
-  if (settings.ideogramApiKey) toStore.ideogramApiKey = await vaultEncrypt(settings.ideogramApiKey);
+  for (const f of OPTIONAL_SECRET_FIELDS) {
+    if (settings[f]) toStore[f] = await vaultEncrypt(settings[f]!);
+  }
   await chrome.storage.local.set({ [SETTINGS_KEY]: toStore });
 }
 
