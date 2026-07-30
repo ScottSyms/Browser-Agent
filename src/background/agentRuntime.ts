@@ -646,7 +646,18 @@ export class AgentRuntime {
     lastTaskUrl: string;
   }> = [];
 
-  constructor(private emit: (event: BackgroundEvent) => void) {}
+  constructor(private rawEmit: (event: BackgroundEvent) => void) {}
+
+  /**
+   * Broadcast an event to connected panels — but stay silent during unattended
+   * (scheduled/triggered) runs, so a background run never flickers through an
+   * open sidebar. The run's results still reach the user via Products, its own
+   * History entry, and the completion notification.
+   */
+  private emit(event: BackgroundEvent): void {
+    if (this.unattended) return;
+    this.rawEmit(event);
+  }
 
   // ----- state for newly connected sidebars -----
 
@@ -899,6 +910,12 @@ export class AgentRuntime {
     prompt: string,
   ): Promise<{ ok: boolean; response?: string; error?: string; needsApproval?: boolean; conversationId?: string; fileArtifactNames?: string[] }> {
     if (this.running) return { ok: false, error: 'Agent is already running.' };
+    // Go unattended FIRST: this both blocks approval-gated tools and — via the
+    // emit() guard — silences panel broadcasts, so the isolation reset below and
+    // the whole run are invisible to an open sidebar (no flicker).
+    this.unattended = true;
+    this.unattendedApprovalBlocked = false;
+    this.unattendedTaskTitle = title;
     // Isolate the scheduled run from the user's active chat: snapshot the loaded
     // conversation in memory, persist it for durability, run in a FRESH one, then
     // restore the snapshot. This stops scheduled output from landing in the
@@ -909,10 +926,6 @@ export class AgentRuntime {
     if (this.currentConversationId && this.messages.length > 0) await this.persistCurrentConversation();
     const snapshot = this.snapshotConversation();
     this.clearConversation();
-
-    this.unattended = true;
-    this.unattendedApprovalBlocked = false;
-    this.unattendedTaskTitle = title;
     try {
       await this.handleUserMessage(`[Scheduled task: ${title}]\n${prompt}`);
       const turnMessages = this.messages;
