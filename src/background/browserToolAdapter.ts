@@ -353,37 +353,30 @@ function buildSearchUrl(query: string): string {
 }
 
 /**
- * Search using the browser's default search engine in a new tab, per spec.
- * Results are read back through getTabContent.
+ * Search using the browser's default search engine, always in a BACKGROUND tab
+ * so the agent never steals the user's focus. We create the tab inactive first,
+ * then run chrome.search into it *by tabId* — which keeps the user's default
+ * search engine (a plain tabs.create with a hardcoded URL would not). Results
+ * are read back through getTabContent.
  */
-export async function searchWeb(query: string, background = false): Promise<NavigationResult> {
-  if (background) {
-    const url = buildSearchUrl(query);
-    let tab: chrome.tabs.Tab;
-    try {
-      tab = await chrome.tabs.create({ url, active: false });
-    } catch (err) {
-      return { tabId: -1, url, title: '', status: 'error', error: String(err) };
-    }
-    if (!tab.id) return { tabId: -1, url, title: '', status: 'error', error: 'Tab not created.' };
-    const complete = await waitForTabComplete(tab.id);
-    const loaded = await chrome.tabs.get(tab.id);
-    return {
-      tabId: tab.id,
-      url: loaded.url ?? url,
-      title: loaded.title ?? '',
-      status: complete ? 'complete' : 'timeout',
-    };
+export async function searchWeb(query: string): Promise<NavigationResult> {
+  let tab: chrome.tabs.Tab;
+  try {
+    tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+  } catch (err) {
+    return { tabId: -1, url: '', title: '', status: 'error', error: String(err) };
+  }
+  if (!tab.id) return { tabId: -1, url: '', title: '', status: 'error', error: 'Tab not created.' };
+
+  try {
+    // Display results in our background tab (no disposition ⇒ uses tabId), so the
+    // default engine is honored without activating the tab.
+    await chrome.search.query({ text: query, tabId: tab.id });
+  } catch {
+    // Fallback if chrome.search is unavailable: navigate the tab to a search URL.
+    await chrome.tabs.update(tab.id, { url: buildSearchUrl(query) });
   }
 
-  await chrome.search.query({ text: query, disposition: 'NEW_TAB' });
-  // chrome.search.query does not return the tab; the new results tab becomes
-  // the active tab in the current window.
-  await new Promise((r) => setTimeout(r, 500));
-  const tab = await queryActiveTab();
-  if (!tab?.id) {
-    return { tabId: -1, url: '', title: '', status: 'error', error: 'Could not locate the search results tab.' };
-  }
   const complete = await waitForTabComplete(tab.id);
   const loaded = await chrome.tabs.get(tab.id);
   return {

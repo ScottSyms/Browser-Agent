@@ -2868,7 +2868,7 @@ export class AgentRuntime {
         return JSON.stringify(await browser.navigate(tabId, url));
       }
       case 'search_web': {
-        const result = await browser.searchWeb(String(args.query), this.unattended);
+        const result = await browser.searchWeb(String(args.query));
         if (result.tabId > 0) await this.addToConversationGroup(result.tabId);
         return JSON.stringify({ ...result, group: this.groupName });
       }
