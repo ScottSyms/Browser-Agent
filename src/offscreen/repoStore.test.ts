@@ -94,6 +94,11 @@ const vec = (n: number, seed: number): number[] => Array.from({ length: n }, (_,
 beforeEach(() => {
   const root = new FakeDirHandle('root');
   vi.stubGlobal('navigator', { storage: { getDirectory: async () => root } });
+  // repoStore now consults the vault (chrome.storage) to decide whether to
+  // encrypt. Empty storage ⇒ no vault ⇒ plaintext, so these existing tests are
+  // unaffected. (Encryption behavior is covered in repoEncryption.test.ts.)
+  const empty = () => ({ async get() { return {}; }, async set() {}, async remove() {} });
+  vi.stubGlobal('chrome', { storage: { local: empty(), session: empty() } });
 });
 
 describe('repoStore model lock', () => {
