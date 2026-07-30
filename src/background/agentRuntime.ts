@@ -2939,11 +2939,17 @@ export class AgentRuntime {
               intervalMinutes: recurrenceArg.intervalMinutes ? Number(recurrenceArg.intervalMinutes) : undefined,
             }
           : undefined;
+        // Relative scheduling ("in N minutes") is computed here from the real
+        // clock — never trust the model to do the date arithmetic.
+        const runInMinutes = Number(args.runInMinutes);
+        const runAt = Number.isFinite(runInMinutes) && runInMinutes > 0
+          ? new Date(Date.now() + runInMinutes * 60_000).toISOString()
+          : args.runAt ? String(args.runAt) : undefined;
         try {
           const task = await createScheduledTask({
             title: String(args.title ?? ''),
             prompt: String(args.prompt ?? ''),
-            runAt: args.runAt ? String(args.runAt) : undefined,
+            runAt,
             recurrence,
           });
           return JSON.stringify({ ok: true, task: { ...task, nextRunAtIso: new Date(task.nextRunAt).toISOString() } });
@@ -3346,6 +3352,17 @@ export class AgentRuntime {
   private buildStateBlock(): string {
     const remaining = Math.max(0, this.stepBudget - this.stepsUsed);
     const lines: string[] = ['\n\n=== Working state (updated each step) ==='];
+    // The model has no innate clock — give it the current LOCAL time every call so
+    // relative ("in two minutes") and fixed times resolve correctly. All times you
+    // reason about or schedule are in this local timezone.
+    const now = new Date();
+    const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'local'; } })();
+    const offsetMin = -now.getTimezoneOffset();
+    const offset = `UTC${offsetMin >= 0 ? '+' : '-'}${String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')}:${String(Math.abs(offsetMin) % 60).padStart(2, '0')}`;
+    lines.push(
+      `Current local time: ${now.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })} (${tz}, ${offset}). ` +
+        `All times are LOCAL. For scheduling relative to now (e.g. "in 2 minutes"), prefer schedule_task's runInMinutes; for a fixed local time use runAt or a recurrence timeOfDay.`,
+    );
     if (this.activeTabLabel)
       lines.push(
         `Active tab (live URL): ${this.activeTabLabel} — page text fetched earlier in this conversation may be from a different URL; re-read with get_tab_content when answering about the current page.`,
