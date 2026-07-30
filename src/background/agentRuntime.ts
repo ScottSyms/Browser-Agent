@@ -899,19 +899,33 @@ export class AgentRuntime {
     prompt: string,
   ): Promise<{ ok: boolean; response?: string; error?: string; needsApproval?: boolean; conversationId?: string; fileArtifactNames?: string[] }> {
     if (this.running) return { ok: false, error: 'Agent is already running.' };
-    const before = this.messages.length;
+    // Isolate the scheduled run from the user's active chat: snapshot the loaded
+    // conversation in memory, persist it for durability, run in a FRESH one, then
+    // restore the snapshot. This stops scheduled output from landing in the
+    // conversation where the task was declared (it becomes its own
+    // "[Scheduled task: …]" history entry instead). Restore is in-memory only, so
+    // it never reopens the user's tab group or steals focus the way
+    // loadConversation would.
+    if (this.currentConversationId && this.messages.length > 0) await this.persistCurrentConversation();
+    const snapshot = this.snapshotConversation();
+    this.clearConversation();
+
     this.unattended = true;
     this.unattendedApprovalBlocked = false;
     this.unattendedTaskTitle = title;
     try {
       await this.handleUserMessage(`[Scheduled task: ${title}]\n${prompt}`);
-      const turnMessages = this.messages.slice(before);
+      const turnMessages = this.messages;
       const response = [...turnMessages].reverse().find((m) => m.role === 'assistant')?.text;
-      // Files generated unattended are saved to the Products store (see
-      // pushChat) since no sidebar is open to click the card's Download
-      // button — surface their names here so the run record (and its
-      // notification) can say where they went.
+      // Files generated unattended are saved to the Products store (see pushChat)
+      // since no sidebar is open to click the card's Download button.
       const fileArtifactNames = turnMessages.filter((m) => m.fileArtifact).map((m) => m.fileArtifact!.filename);
+      // Save the text answer to Products too, so scheduled output is discoverable
+      // there rather than only inside a conversation.
+      if (response) {
+        const productName = await this.saveScheduledTextToProducts(title, response);
+        if (productName) fileArtifactNames.push(productName);
+      }
       const conversationId = this.currentConversationId ?? undefined;
       if (this.unattendedApprovalBlocked) {
         return { ok: false, response, error: 'Scheduled task needs user approval for a state-changing tool.', needsApproval: true, conversationId, fileArtifactNames };
@@ -920,6 +934,62 @@ export class AgentRuntime {
     } finally {
       this.unattended = false;
       this.unattendedTaskTitle = null;
+      this.restoreConversation(snapshot); // put the user's conversation back (in-memory, no side effects)
+    }
+  }
+
+  /** Capture the current conversation's in-memory state (the exact fields
+   *  clearConversation resets) so a scheduled run can restore it afterward. */
+  private snapshotConversation() {
+    return {
+      conversation: this.conversation,
+      messages: this.messages,
+      activities: this.activities,
+      pendingSnapshots: this.pendingSnapshots,
+      pendingToolImages: this.pendingToolImages,
+      undoStack: this.undoStack,
+      plan: this.plan,
+      findings: this.findings,
+      stepsUsed: this.stepsUsed,
+      toolCallCount: this.toolCallCount,
+      canDistill: this.canDistill,
+      lastTaskUrl: this.lastTaskUrl,
+      currentConversationId: this.currentConversationId,
+      currentConversationProjectId: this.currentConversationProjectId,
+      conversationCreatedAt: this.conversationCreatedAt,
+      currentConversationTitle: this.currentConversationTitle,
+      titleIsAuto: this.titleIsAuto,
+      currentConversationSummary: this.currentConversationSummary,
+      summaryAtCount: this.summaryAtCount,
+      currentConversationLabels: this.currentConversationLabels,
+      groupName: this.groupName,
+      groupId: this.groupId,
+    };
+  }
+
+  private restoreConversation(s: ReturnType<AgentRuntime['snapshotConversation']>): void {
+    Object.assign(this, s);
+    this.setStatus('idle');
+    this.emit(this.fullState());
+    this.emit({ type: 'plan_update', plan: this.planView() });
+  }
+
+  /** Persist a scheduled/triggered run's text answer to the Products store as a
+   *  timestamped Markdown file, so unattended output is durable and browsable
+   *  there (companion to the file artifacts saved in pushChat). Best-effort. */
+  private async saveScheduledTextToProducts(title: string, text: string): Promise<string | undefined> {
+    try {
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(/:/g, '');
+      const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'scheduled-task';
+      const filename = `${base}-${stamp}.md`;
+      const md = `# ${title}\n\n_${new Date().toLocaleString()}_\n\n${text}`;
+      const bytes = new TextEncoder().encode(md);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      await productSave(filename, 'text/markdown', btoa(bin), { sourceTitle: title, conversationId: this.currentConversationId ?? undefined });
+      return filename;
+    } catch {
+      return undefined;
     }
   }
 
