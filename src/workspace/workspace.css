@@ -269,3 +269,9 @@ html, body, #app { margin: 0; height: 100%; font-family: -apple-system, BlinkMac
 .ws-job-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 .ws-job-report { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: auto; max-height: 70vh; }
 .ws-job-report pre { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 12.5px; margin: 0; }
+
+/* --- Scheduled-task inline edit form -------------------------------------- */
+.ws-task-edit { flex-basis: 100%; width: 100%; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.ws-task-edit textarea { resize: vertical; }
+.ws-days { display: flex; flex-wrap: wrap; gap: 10px; }
+.ws-day { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }

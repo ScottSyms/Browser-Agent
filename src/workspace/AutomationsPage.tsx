@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { EventTrigger, TriggerRun } from '../shared/eventTriggers';
-import type { ScheduledRun, ScheduledTask } from '../shared/scheduledTasks';
+import type { ScheduledRun, ScheduledTask, ScheduledTaskRecurrence } from '../shared/scheduledTasks';
 import type { Skill } from '../shared/types';
 import type { Workflow } from '../shared/workflows';
 import { useT } from '../sidebar/i18n';
@@ -50,6 +50,17 @@ export function AutomationsPage() {
   const [trMatchSubPages, setTrMatchSubPages] = useState(true);
   const [trError, setTrError] = useState<string | null>(null);
 
+  // Inline edit/reschedule form for a scheduled task.
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [etTitle, setEtTitle] = useState('');
+  const [etPrompt, setEtPrompt] = useState('');
+  const [etKind, setEtKind] = useState<'once' | 'daily' | 'weekly' | 'interval'>('once');
+  const [etRunAt, setEtRunAt] = useState('');
+  const [etTime, setEtTime] = useState('09:00');
+  const [etDays, setEtDays] = useState<number[]>([]);
+  const [etInterval, setEtInterval] = useState('60');
+  const [etError, setEtError] = useState<string | null>(null);
+
   const reload = () => {
     chrome.runtime.sendMessage({ type: 'scheduled_tasks_get' }).then((r: ScheduledTask[]) => setTasks(Array.isArray(r) ? r : []));
     chrome.runtime.sendMessage({ type: 'scheduled_runs_get' }).then((r: ScheduledRun[]) => setTaskRuns(Array.isArray(r) ? r : []));
@@ -77,6 +88,62 @@ export function AutomationsPage() {
   };
   const deleteTask = async (id: string) => {
     await chrome.runtime.sendMessage({ type: 'scheduled_task_delete', id });
+    reload();
+  };
+
+  // datetime-local value (local time, no timezone suffix) for a timestamp.
+  const toLocalInput = (ms?: number): string => {
+    const d = ms ? new Date(ms) : new Date(Date.now() + 5 * 60_000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const startEditTask = (task: ScheduledTask) => {
+    setEditingTaskId(task.id);
+    setEtTitle(task.title);
+    setEtPrompt(task.prompt);
+    setEtError(null);
+    const r = task.recurrence;
+    if (!r) {
+      setEtKind('once');
+      setEtRunAt(toLocalInput(task.nextRunAt));
+    } else if (r.kind === 'weekly') {
+      setEtKind('weekly');
+      setEtTime(r.timeOfDay ?? '09:00');
+      setEtDays(r.daysOfWeek ?? []);
+    } else if (r.kind === 'interval') {
+      setEtKind('interval');
+      setEtInterval(String(r.intervalMinutes ?? 60));
+    } else {
+      setEtKind('daily');
+      setEtTime(r.timeOfDay ?? '09:00');
+    }
+  };
+  const toggleDay = (d: number) => setEtDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()));
+  const saveEditTask = async () => {
+    if (!editingTaskId) return;
+    setEtError(null);
+    const patch: { title: string; prompt: string; runAt?: string; recurrence?: ScheduledTaskRecurrence | null } = { title: etTitle, prompt: etPrompt };
+    if (etKind === 'once') {
+      const ms = Date.parse(etRunAt);
+      if (!Number.isFinite(ms)) {
+        setEtError('Pick a valid date and time.');
+        return;
+      }
+      patch.runAt = new Date(ms).toISOString();
+      patch.recurrence = null;
+    } else if (etKind === 'daily') {
+      patch.recurrence = { kind: 'daily', timeOfDay: etTime };
+    } else if (etKind === 'weekly') {
+      patch.recurrence = { kind: 'weekly', timeOfDay: etTime, daysOfWeek: etDays };
+    } else {
+      patch.recurrence = { kind: 'interval', intervalMinutes: Math.max(1, Number(etInterval) || 60) };
+    }
+    const res = (await chrome.runtime.sendMessage({ type: 'scheduled_task_update', id: editingTaskId, patch })) as { ok: boolean; error?: string };
+    if (!res.ok) {
+      setEtError(res.error ?? 'Could not update the task.');
+      return;
+    }
+    setEditingTaskId(null);
     reload();
   };
 
@@ -228,9 +295,47 @@ export function AutomationsPage() {
                   </span>
                 </div>
                 <div class="ws-item-actions">
+                  <button class="btn btn-small" onClick={() => (editingTaskId === task.id ? setEditingTaskId(null) : startEditTask(task))}>{editingTaskId === task.id ? 'Close' : 'Edit'}</button>
                   <button class="btn btn-small" onClick={() => toggleTask(task.id, !task.enabled)}>{task.enabled ? t('automations.pause') : t('automations.resume')}</button>
                   <button class="icon-btn" title={t('automations.delete')} onClick={() => deleteTask(task.id)}>✕</button>
                 </div>
+                {editingTaskId === task.id && (
+                  <div class="ws-task-edit">
+                    {etError && <div class="banner banner-error">{etError}</div>}
+                    <label class="field"><span>Title</span><input value={etTitle} onInput={(e) => setEtTitle((e.target as HTMLInputElement).value)} /></label>
+                    <label class="field"><span>Instruction</span><textarea rows={3} value={etPrompt} onInput={(e) => setEtPrompt((e.target as HTMLTextAreaElement).value)} /></label>
+                    <label class="field"><span>Schedule</span>
+                      <select value={etKind} onChange={(e) => setEtKind((e.target as HTMLSelectElement).value as typeof etKind)}>
+                        <option value="once">One time</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="interval">Every N minutes</option>
+                      </select>
+                    </label>
+                    {etKind === 'once' && (
+                      <label class="field"><span>Run at (local time)</span><input type="datetime-local" value={etRunAt} onInput={(e) => setEtRunAt((e.target as HTMLInputElement).value)} /></label>
+                    )}
+                    {(etKind === 'daily' || etKind === 'weekly') && (
+                      <label class="field"><span>Time (local)</span><input type="time" value={etTime} onInput={(e) => setEtTime((e.target as HTMLInputElement).value)} /></label>
+                    )}
+                    {etKind === 'weekly' && (
+                      <div class="field"><span>Days</span>
+                        <div class="ws-days">
+                          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
+                            <label key={i} class="ws-day"><input type="checkbox" checked={etDays.includes(i)} onChange={() => toggleDay(i)} /> {d}</label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {etKind === 'interval' && (
+                      <label class="field"><span>Every (minutes)</span><input type="number" min="1" value={etInterval} onInput={(e) => setEtInterval((e.target as HTMLInputElement).value)} /></label>
+                    )}
+                    <div class="settings-actions">
+                      <button class="btn btn-primary" onClick={saveEditTask} disabled={!etTitle.trim() || !etPrompt.trim()}>Save changes</button>
+                      <button class="btn" onClick={() => setEditingTaskId(null)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
