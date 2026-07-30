@@ -31,7 +31,7 @@ import { clearCheckpoint, readCheckpoint, writeCheckpoint } from '../shared/chec
 import { buildResumePrompt, MAX_RECOVERY_ATTEMPTS, reconcileTabs, shouldAutoResume } from '../shared/recovery';
 import { getVaultState } from './vault';
 import type { BackgroundEvent } from '../shared/messages';
-import { MEMORY_TOOL_DEFINITIONS, TOOL_DEFINITIONS } from '../shared/schemas';
+import { MEMORY_TOOL_DEFINITIONS, READ_ONLY_TOOLS, TOOL_DEFINITIONS } from '../shared/schemas';
 import { LANGUAGE_STORAGE_KEY, resolveLang, translate, type LangPref } from '../sidebar/i18n';
 import type {
   AgentStatus,
@@ -287,37 +287,9 @@ function encodeUtf8Base64(text: string): string {
 const UNATTENDED_BLOCKED_TOOLS = new Set<string>([]);
 
 /** Read-only / local tools that are safe to run concurrently within one turn. */
-const READ_ONLY_TOOLS = new Set([
-  'list_tabs',
-  'get_active_tab',
-  'get_tab_content',
-  'get_element_map',
-  'detect_auth_state',
-  'wait_for_element',
-  'search_known_sites',
-  'list_mcp_tools',
-  'list_webmcp_tools',
-  'sharepoint_search',
-  'microsoft365_search',
-  'calendar_search',
-  'list_scheduled_tasks',
-  'read_tab_group',
-  'search_repo',
-  'list_repos',
-  'use_skill',
-  'set_plan',
-  'update_plan',
-  'record_finding',
-  'export_data',
-  'create_file',
-  'create_image',
-  'create_word_document',
-  'read_pdf',
-  'read_office_document',
-  'get_video_transcript',
-  'read_app_content',
-  'query_pointer_target',
-]);
+// READ_ONLY_TOOLS now lives beside TOOL_DEFINITIONS in ../shared/schemas so the
+// tool catalogue and its read-only metadata are one source of truth (imported
+// above). Used here to run safe tools concurrently.
 
 // Scoped sub-agent execution (runScopedSubtask, tool set, result parsing) lives
 // in ./scopedSubtask so the durable job engine can reuse it outside a live turn.

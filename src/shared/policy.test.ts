@@ -7,6 +7,7 @@ import {
   type ActionClass,
   type PolicyInput,
 } from './policy';
+import { MEMORY_TOOL_DEFINITIONS, READ_ONLY_TOOLS, TOOL_DEFINITIONS } from './schemas';
 
 const EMPTY = new Set<string>();
 const READ_ONLY = new Set(['get_tab_content', 'list_tabs']);
@@ -136,5 +137,47 @@ describe('isApprovalStillValid — approval binding', () => {
   });
   it('treats an unbound (undefined) expiry as valid', () => {
     expect(isApprovalStillValid(undefined, Number.MAX_SAFE_INTEGER)).toBe(true);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Coverage guard: every advertised tool must be *deliberately* classified.
+//
+// classifyTool resolves a tool as TOOL_ACTION_CLASS[tool] ?? (READ_ONLY_TOOLS
+// ? 'read' : 'external_comms'). A tool that is in NEITHER table silently rides
+// that last default to `external_comms`, which means it prompts the user for
+// approval — the exact over-gating regression that made `open_url` ask for
+// permission. This test fails the build the moment a new tool is added to
+// TOOL_DEFINITIONS without a risk class, turning a silent runtime UX regression
+// into a loud, one-line-to-fix CI failure. It asserts nothing about *which*
+// class is correct — only that a human made a deliberate choice for every tool.
+// -----------------------------------------------------------------------------
+describe('tool classification coverage', () => {
+  const advertisedTools = [...TOOL_DEFINITIONS, ...MEMORY_TOOL_DEFINITIONS].map((t) => t.function.name);
+
+  it('advertises at least the known core tools (guards against an empty catalogue)', () => {
+    expect(advertisedTools).toContain('open_url');
+    expect(advertisedTools.length).toBeGreaterThan(20);
+  });
+
+  it('classifies every advertised tool explicitly (TOOL_ACTION_CLASS or READ_ONLY_TOOLS)', () => {
+    const unclassified = advertisedTools.filter(
+      (tool) => !(tool in TOOL_ACTION_CLASS) && !READ_ONLY_TOOLS.has(tool),
+    );
+    // If this fails: add the tool to TOOL_ACTION_CLASS with its risk class, or to
+    // READ_ONLY_TOOLS if it has no state-changing/outward-facing effect. Leaving
+    // it unlisted makes it silently prompt for approval (external_comms default).
+    expect(unclassified, `unclassified tools would default to external_comms: ${unclassified.join(', ')}`).toEqual([]);
+  });
+
+  it('has no TOOL_ACTION_CLASS entry for a tool that is not advertised (stale entry)', () => {
+    // Reverse guard: an entry for a tool no longer in the catalogue is dead
+    // config. `microsoft365_search` is intentionally allowed — it is a
+    // capability-sourced tool classified ahead of being advertised.
+    const advertised = new Set(advertisedTools);
+    const stale = Object.keys(TOOL_ACTION_CLASS).filter(
+      (tool) => !advertised.has(tool) && tool !== 'microsoft365_search',
+    );
+    expect(stale, `stale TOOL_ACTION_CLASS entries: ${stale.join(', ')}`).toEqual([]);
   });
 });

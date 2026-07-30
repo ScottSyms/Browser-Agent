@@ -1011,3 +1011,44 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 ];
+
+/**
+ * Tools with no state-changing or outward-facing effect: safe to run
+ * concurrently (agentRuntime batches these in parallel) and, in the policy
+ * engine, the fallback that makes an otherwise-unlisted tool resolve to the
+ * `read` class instead of the cautious `external_comms` default. Lives here,
+ * beside TOOL_DEFINITIONS, so the tool catalogue and its read-only metadata
+ * stay one source of truth (see policy.ts `classifyTool` and the coverage test
+ * in policy.test.ts that asserts every advertised tool is accounted for).
+ */
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'list_tabs',
+  'get_active_tab',
+  'get_tab_content',
+  'get_element_map',
+  'detect_auth_state',
+  'wait_for_element',
+  'search_known_sites',
+  'list_mcp_tools',
+  'list_webmcp_tools',
+  'sharepoint_search',
+  'microsoft365_search',
+  'calendar_search',
+  'list_scheduled_tasks',
+  'read_tab_group',
+  'search_repo',
+  'list_repos',
+  'use_skill',
+  'set_plan',
+  'update_plan',
+  'record_finding',
+  'export_data',
+  'create_file',
+  'create_image',
+  'create_word_document',
+  'read_pdf',
+  'read_office_document',
+  'get_video_transcript',
+  'read_app_content',
+  'query_pointer_target',
+]);
