@@ -45,7 +45,7 @@ import {
   type SharePointSyncProgress,
 } from './sharepointIngest';
 import { connectMailbox, disconnectMailbox, isMailboxConnected } from './graphAuth';
-import { cancelScheduledTask, getScheduledRuns, getScheduledTasks, reconcileScheduledAlarms, runScheduledTaskById, setScheduledTaskEnabled, taskIdFromAlarm } from './scheduler';
+import { cancelScheduledTask, getScheduledRuns, getScheduledTasks, reconcileScheduledAlarms, runScheduledTaskById, setScheduledTaskEnabled, taskIdFromAlarm, updateScheduledTask } from './scheduler';
 import { cancelJob, jobIdFromAlarm, pauseJob, reconcileJobs, resumeJob, tick } from './jobEngine';
 import { deleteJob } from './jobStore';
 import './researchJob'; // side-effect: registers the 'research' job type with the engine
@@ -652,6 +652,12 @@ chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResp
   }
   if (request.type === 'scheduled_runs_get') {
     getScheduledRuns().then(sendResponse);
+    return true;
+  }
+  if (request.type === 'scheduled_task_update') {
+    updateScheduledTask(request.id, request.patch)
+      .then((task) => sendResponse({ ok: Boolean(task), task }))
+      .catch((e) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));
     return true;
   }
   if (request.type === 'scheduled_task_set_enabled') {

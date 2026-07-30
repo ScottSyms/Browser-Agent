@@ -21,6 +21,7 @@ import type {
   ToolActivity,
 } from './types';
 import type { EventTrigger } from './eventTriggers';
+import type { ScheduledTaskRecurrence } from './scheduledTasks';
 import type { Workflow } from './workflows';
 
 /** Commands sent from the sidebar to the background over a long-lived port. */
@@ -158,6 +159,7 @@ export type RuntimeRequest =
   | { type: 'scheduled_tasks_get' }
   | { type: 'scheduled_runs_get' }
   | { type: 'scheduled_task_set_enabled'; id: string; enabled: boolean }
+  | { type: 'scheduled_task_update'; id: string; patch: { title?: string; prompt?: string; runAt?: string; recurrence?: ScheduledTaskRecurrence | null } }
   | { type: 'scheduled_task_delete'; id: string }
   | { type: 'workflow_list' }
   | { type: 'workflow_create'; name: string; skillNames: string[]; description?: string }

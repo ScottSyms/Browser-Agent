@@ -150,6 +150,46 @@ export async function setScheduledTaskEnabled(id: string, enabled: boolean): Pro
   return updateTask(id, { enabled });
 }
 
+export interface UpdateScheduledTaskInput {
+  title?: string;
+  prompt?: string;
+  /** Supplying either timing field reschedules the task (recomputes nextRunAt + alarm). */
+  runAt?: string;
+  recurrence?: ScheduledTaskRecurrence | null;
+}
+
+/**
+ * Edit a scheduled task's title/prompt and/or reschedule it. Timing is only
+ * recomputed when `runAt` or `recurrence` is present in the patch, so editing
+ * just the text leaves the next run time untouched. Re-arms the alarm.
+ */
+export async function updateScheduledTask(id: string, patch: UpdateScheduledTaskInput): Promise<ScheduledTask | null> {
+  const tasks = await getScheduledTasks();
+  const idx = tasks.findIndex((t) => t.id === id);
+  if (idx < 0) return null;
+  const cur = tasks[idx];
+
+  const title = patch.title !== undefined ? patch.title.trim() : cur.title;
+  const prompt = patch.prompt !== undefined ? patch.prompt.trim() : cur.prompt;
+  if (!title) throw new Error('Scheduled task needs a title.');
+  if (!prompt) throw new Error('Scheduled task needs a prompt.');
+
+  let nextRunAt = cur.nextRunAt;
+  let recurrence = cur.recurrence;
+  if (patch.runAt !== undefined || patch.recurrence !== undefined) {
+    recurrence = patch.recurrence ?? undefined;
+    const computed = nextRunFromSchedule(patch.runAt, recurrence);
+    if (!computed) throw new Error('Scheduled task needs a future run time or a valid recurrence.');
+    nextRunAt = computed;
+  }
+
+  const updated: ScheduledTask = { ...cur, title, prompt, recurrence, nextRunAt };
+  tasks[idx] = updated;
+  await saveScheduledTasks(tasks);
+  await scheduleAlarm(updated);
+  return updated;
+}
+
 function nextAfterRun(task: ScheduledTask, now: number): { enabled: boolean; nextRunAt: number } {
   if (!task.recurrence) return { enabled: false, nextRunAt: task.nextRunAt };
   const next = computeNextRunAt(task.recurrence, now + 1000);
