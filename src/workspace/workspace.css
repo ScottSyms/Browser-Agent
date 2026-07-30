@@ -107,9 +107,15 @@ html, body, #app { margin: 0; height: 100%; font-family: -apple-system, BlinkMac
    for the 720px console pages rather than the 400px side panel the site-row
    styles were built for. */
 .ws-item-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; }
-.ws-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; }
+/* flex-wrap so an expanded child (the inline task editor, flex-basis:100%) drops
+   to its own full-width row instead of being crammed onto the nowrap line and
+   crushing the title/meta column to a single-character sliver. row-gap:0 keeps
+   the wrapped editor tight to the row it belongs to (it sets its own top margin). */
+.ws-item { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 0; padding: 10px 12px; border-radius: 8px; }
 .ws-item + .ws-item { border-top: 1px solid var(--border); }
 .ws-item:hover { background: var(--bg-panel); }
+/* Row being edited: a calm highlight so the open editor is clearly tied to its task. */
+.ws-item.is-editing { background: var(--bg-panel); }
 .ws-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .ws-item-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; overflow-wrap: anywhere; }
 .ws-item-meta { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
@@ -270,8 +276,24 @@ html, body, #app { margin: 0; height: 100%; font-family: -apple-system, BlinkMac
 .ws-job-report { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: auto; max-height: 70vh; }
 .ws-job-report pre { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 12.5px; margin: 0; }
 
-/* --- Scheduled-task inline edit form -------------------------------------- */
-.ws-task-edit { flex-basis: 100%; width: 100%; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+/* --- Scheduled-task inline edit form --------------------------------------
+   A contained card that reads as its own editor, matching the .site-form
+   create-forms elsewhere on this page rather than a bare border-top blob. */
+.ws-task-edit {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Keep each field stacked at its natural height (the column-flex 150px-basis
+   pitfall documented for .site-form applies here too). */
+.ws-task-edit .field { flex: initial; }
 .ws-task-edit textarea { resize: vertical; }
 .ws-days { display: flex; flex-wrap: wrap; gap: 10px; }
 .ws-day { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }

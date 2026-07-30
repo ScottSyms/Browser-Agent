@@ -272,7 +272,7 @@ role routing; see §9 *Model orchestration*. Both settings sections share the
 `SettingsControls.tsx` Group/Toggle card chrome and **patch-save** — each save
 re-reads `ba_settings` and merges only its own fields, so one section's save
 can't revert the other's),
-**Automations** (`AutomationsPage.tsx` — scheduled tasks, workflows, and
+**Automations** (`AutomationsPage.tsx` — scheduled tasks and
 event triggers; see §9 *Agent platform*),
 **Products** (`ProductsPage.tsx` — files those runs generate, OPFS-backed;
 see §9 *Agent platform*), **Data**
@@ -1084,6 +1084,11 @@ untouched by any of this):
   numbered instruction ("call `use_skill` for X, finish it, then Y, then
   Z…") and hands that to the normal loop, so a workflow is a saved shortcut
   through tools the agent already has, not a new capability.
+  *As-built: the Workflows management UI has been removed from the Automations
+  tab (a saved skill-chain proved to overlap with just invoking skills in
+  order). The engine, storage, and `workflow_*` messages remain for
+  backward-compatibility with any workflow already stored, but there is no
+  longer a UI to create or edit them, and event triggers are skill-only (below).*
 - **Event triggers** (`shared/eventTriggers.ts` `EventTrigger {hostPattern,
   target: skill|workflow, cooldownMinutes}`) — "when I open a page on this
   site, run this unattended." Firing is driven by a single top-level
@@ -1101,10 +1106,11 @@ untouched by any of this):
   configured.
 
 UI: `src/workspace/AutomationsPage.tsx` — the first-ever view into scheduled
-tasks (list, pause/resume, delete, recent runs) alongside Workflow CRUD and
-Event trigger CRUD (site, target skill/workflow, cooldown, recent runs).
-RuntimeRequests (`scheduled_tasks_get`, `scheduled_task_set_enabled`,
-`workflow_create`, `event_trigger_create`, etc., `serviceWorker.ts`) mirror
+tasks (list, edit/reschedule, pause/resume, delete, recent runs) alongside
+Event trigger CRUD (site, target skill, cooldown, recent runs). Scheduled tasks
+also support inline edit + reschedule. RuntimeRequests (`scheduled_tasks_get`,
+`scheduled_task_set_enabled`, `scheduled_task_update`, `event_trigger_create`,
+etc., `serviceWorker.ts`) mirror
 the established one-shot-message pattern used throughout (Projects, memory
 graph, repos).
 

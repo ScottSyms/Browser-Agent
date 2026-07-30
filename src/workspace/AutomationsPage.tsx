@@ -33,18 +33,10 @@ export function AutomationsPage() {
   const [triggerRuns, setTriggerRuns] = useState<TriggerRun[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
 
-  const [showWorkflowForm, setShowWorkflowForm] = useState(false);
-  const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
-  const [wfName, setWfName] = useState('');
-  const [wfDescription, setWfDescription] = useState('');
-  const [wfSkills, setWfSkills] = useState('');
-  const [wfError, setWfError] = useState<string | null>(null);
-
   const [showTriggerForm, setShowTriggerForm] = useState(false);
   const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
   const [trName, setTrName] = useState('');
   const [trHost, setTrHost] = useState('');
-  const [trTargetKind, setTrTargetKind] = useState<'skill' | 'workflow'>('skill');
   const [trTargetValue, setTrTargetValue] = useState('');
   const [trCooldown, setTrCooldown] = useState('');
   const [trMatchSubPages, setTrMatchSubPages] = useState(true);
@@ -147,61 +139,13 @@ export function AutomationsPage() {
     reload();
   };
 
-  const createWorkflow = async () => {
-    setWfError(null);
-    const skillNames = wfSkills.split(',').map((s) => s.trim()).filter(Boolean);
-    const req = editingWorkflowId
-      ? {
-          type: 'workflow_update' as const,
-          id: editingWorkflowId,
-          patch: { name: wfName, description: wfDescription || undefined, skillNames },
-        }
-      : {
-          type: 'workflow_create' as const,
-          name: wfName,
-          description: wfDescription || undefined,
-          skillNames,
-        };
-    const res = (await chrome.runtime.sendMessage(req)) as { ok: boolean; error?: string };
-    if (!res.ok) {
-      setWfError(res.error ?? 'Could not create workflow.');
-      return;
-    }
-    setWfName('');
-    setWfDescription('');
-    setWfSkills('');
-    setShowWorkflowForm(false);
-    setEditingWorkflowId(null);
-    reload();
-  };
-  const deleteWorkflow = async (id: string) => {
-    await chrome.runtime.sendMessage({ type: 'workflow_delete', id });
-    reload();
-  };
-  const editWorkflow = (w: Workflow) => {
-    setWfError(null);
-    setEditingWorkflowId(w.id);
-    setWfName(w.name);
-    setWfDescription(w.description ?? '');
-    setWfSkills(w.skillNames.join(', '));
-    setShowWorkflowForm(true);
-  };
-  const newWorkflow = () => {
-    setWfError(null);
-    setEditingWorkflowId(null);
-    setWfName('');
-    setWfDescription('');
-    setWfSkills('');
-    setShowWorkflowForm(true);
-  };
-
   const createTrigger = async () => {
     setTrError(null);
     if (!trTargetValue.trim()) {
-      setTrError(trTargetKind === 'skill' ? 'Pick a skill.' : 'Pick a workflow.');
+      setTrError('Pick a skill.');
       return;
     }
-    const target = trTargetKind === 'skill' ? { kind: 'skill' as const, name: trTargetValue } : { kind: 'workflow' as const, workflowId: trTargetValue };
+    const target = { kind: 'skill' as const, name: trTargetValue };
     const cooldownMinutes = trCooldown.trim() ? Number(trCooldown) : undefined;
     const req = editingTriggerId
       ? {
@@ -244,8 +188,9 @@ export function AutomationsPage() {
     setEditingTriggerId(t.id);
     setTrName(t.name);
     setTrHost(t.hostPattern);
-    setTrTargetKind(t.target.kind);
-    setTrTargetValue(t.target.kind === 'skill' ? t.target.name : t.target.workflowId);
+    // Triggers are skill-only now; a legacy workflow target has no skill to
+    // preselect, so start empty and let the user pick a skill.
+    setTrTargetValue(t.target.kind === 'skill' ? t.target.name : '');
     setTrCooldown(t.cooldownMinutes ? String(t.cooldownMinutes) : '');
     setTrMatchSubPages(t.matchSubPages ?? true);
     setShowTriggerForm(true);
@@ -255,7 +200,6 @@ export function AutomationsPage() {
     setEditingTriggerId(null);
     setTrName('');
     setTrHost('');
-    setTrTargetKind('skill');
     setTrTargetValue('');
     setTrCooldown('');
     setTrMatchSubPages(true);
@@ -283,7 +227,7 @@ export function AutomationsPage() {
         ) : (
           <ul class="ws-item-list">
             {tasks.map((task) => (
-              <li key={task.id} class="ws-item" title={task.prompt}>
+              <li key={task.id} class={`ws-item${editingTaskId === task.id ? ' is-editing' : ''}`} title={task.prompt}>
                 <div class="ws-item-main">
                   <span class="ws-item-title">
                     {task.title}
@@ -363,65 +307,6 @@ export function AutomationsPage() {
 
       <details class="settings-acc">
         <summary class="settings-acc-summary">
-          <strong>{t('automations.workflows')}</strong>
-        </summary>
-        <p class="settings-note">{t('automations.workflowsNote')}</p>
-        {workflows.length > 0 && (
-          <ul class="ws-item-list">
-            {workflows.map((w) => (
-              <li key={w.id} class="ws-item" title={w.description}>
-                <div class="ws-item-main">
-                  <span class="ws-item-title">{w.name}</span>
-                  <span class="ws-item-meta">{w.skillNames.map((n) => `/${n}`).join(' → ')}</span>
-                </div>
-                <div class="ws-item-actions">
-                  <button class="icon-btn" title={t('automations.edit')} onClick={() => editWorkflow(w)}>✎</button>
-                  <button class="icon-btn" title={t('automations.delete')} onClick={() => deleteWorkflow(w.id)}>✕</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {showWorkflowForm ? (
-          <div class="site-form">
-            <label class="field">
-              <span>{t('automations.workflowName')}</span>
-              <input type="text" value={wfName} onInput={(e) => setWfName((e.target as HTMLInputElement).value)} />
-            </label>
-            <label class="field">
-              <span>{t('automations.workflowDescription')}</span>
-              <input type="text" value={wfDescription} onInput={(e) => setWfDescription((e.target as HTMLInputElement).value)} />
-            </label>
-            <label class="field">
-              <span>{t('automations.workflowSkills')} — {t('automations.workflowSkillsKnown').replace('{skills}', skills.map((s) => s.name).join(', ') || t('automations.workflowSkillsNone'))}</span>
-              <input type="text" placeholder="research, search-mail" value={wfSkills} onInput={(e) => setWfSkills((e.target as HTMLInputElement).value)} />
-            </label>
-            {wfError && <div class="banner banner-error">{wfError}</div>}
-            <div class="settings-actions">
-              <button
-                class="btn"
-                onClick={() => {
-                  setShowWorkflowForm(false);
-                  setEditingWorkflowId(null);
-                  setWfError(null);
-                }}
-              >
-                {t('common.cancel')}
-              </button>
-              <button class="btn btn-primary" onClick={createWorkflow} disabled={!wfName.trim() || !wfSkills.trim()}>
-                {editingWorkflowId ? t('automations.updateWorkflow') : t('automations.createWorkflow')}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div class="context-actions">
-            <button class="btn btn-small" onClick={newWorkflow}>{t('automations.addWorkflow')}</button>
-          </div>
-        )}
-      </details>
-
-      <details class="settings-acc">
-        <summary class="settings-acc-summary">
           <strong>{t('automations.eventTriggers')}</strong>
         </summary>
         <p class="settings-note">{t('automations.eventTriggersNote')}</p>
@@ -459,33 +344,14 @@ export function AutomationsPage() {
               <input type="text" placeholder="jira.example.com" value={trHost} onInput={(e) => setTrHost((e.target as HTMLInputElement).value)} />
             </label>
             <label class="field">
-              <span>{t('automations.triggerRun')}</span>
-              <select value={trTargetKind} onChange={(e) => { setTrTargetKind((e.target as HTMLSelectElement).value as 'skill' | 'workflow'); setTrTargetValue(''); }}>
-                <option value="skill">{t('automations.triggerSkill')}</option>
-                <option value="workflow">{t('automations.triggerWorkflow')}</option>
+              <span>{t('automations.triggerSkill')}</span>
+              <select value={trTargetValue} onChange={(e) => setTrTargetValue((e.target as HTMLSelectElement).value)}>
+                <option value="">{t('automations.chooseSkill')}</option>
+                {skills.map((s) => (
+                  <option key={s.id} value={s.name}>/{s.name}</option>
+                ))}
               </select>
             </label>
-            {trTargetKind === 'skill' ? (
-              <label class="field">
-                <span>{t('automations.triggerSkill')}</span>
-                <select value={trTargetValue} onChange={(e) => setTrTargetValue((e.target as HTMLSelectElement).value)}>
-                  <option value="">{t('automations.chooseSkill')}</option>
-                  {skills.map((s) => (
-                    <option key={s.id} value={s.name}>/{s.name}</option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <label class="field">
-                <span>{t('automations.triggerWorkflow')}</span>
-                <select value={trTargetValue} onChange={(e) => setTrTargetValue((e.target as HTMLSelectElement).value)}>
-                  <option value="">{t('automations.chooseWorkflow')}</option>
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>{w.name}</option>
-                  ))}
-                </select>
-              </label>
-            )}
             <label class="field">
               <span>{t('automations.cooldownMinutes')}</span>
               <input type="number" min="1" placeholder="60" value={trCooldown} onInput={(e) => setTrCooldown((e.target as HTMLInputElement).value)} />

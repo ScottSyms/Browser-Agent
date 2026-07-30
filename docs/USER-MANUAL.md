@@ -677,16 +677,12 @@ agent does without you watching turn by turn — lives:
   today's headlines"), it's saved to the **Products** page (see below) rather
   than forced into an OS download prompt — handy if you have several jobs
   running and don't want a download popup for each one.
-- **Workflows.** A named, ordered chain of your existing skills — e.g. a "Morning
-  routine" workflow that runs `/research` then `/search-mail` in sequence.
-  Create one from the page (name it, list the skills in order); it's not a new
-  capability, just a saved shortcut through skills you already have.
-- **Event triggers.** "When I open a page on this site, run this skill or
-  workflow" — e.g. automatically triage a ticket queue whenever you open your
-  Jira board. Set the site, what to run, and (optionally) a cooldown so it
-  doesn't refire every time you're back on that tab within the same session.
+- **Event triggers.** "When I open a page on this site, run this skill" — e.g.
+  automatically triage a ticket queue whenever you open your Jira board. Set the
+  site, the skill to run, and (optionally) a cooldown so it doesn't refire every
+  time you're back on that tab within the same session.
 
-**Every one of these — scheduled, workflow, or triggered — runs under the exact
+**Both of these — scheduled or triggered — run under the exact
 same safety rule as anything else unattended:** it can read, search, and gather
 freely, but a state-changing action (clicking something, filling a form,
 sending mail) still needs your approval, so it simply pauses and waits rather
