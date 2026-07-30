@@ -444,6 +444,67 @@ export async function clearAllConversations(): Promise<void> {
   ]);
 }
 
+// --- portable backup (decrypt on export, re-encrypt on import) ----------------
+// A backup must be readable on another install, so vault-encrypted content is
+// decrypted on export (like the RAG store already does) and re-sealed under the
+// destination's vault on import. Repos/products go through their own export/import
+// paths; these two cover the conversation store.
+
+/**
+ * Conversation storage for a portable backup — index, label registry, and every
+ * body, all DECRYPTED. Throws if a vault is locked, since the content can't be
+ * read to make it portable.
+ */
+export async function exportConversationsForBackup(): Promise<Record<string, unknown>> {
+  if ((await getVaultState()) === 'locked') {
+    throw new Error('Unlock the encryption vault to include conversations in the backup.');
+  }
+  const index = await getConversationIndex(); // decrypted display fields
+  const out: Record<string, unknown> = {
+    [CONVERSATION_INDEX_KEY]: index,
+    [CONVERSATION_LABELS_KEY]: await getConversationLabels(),
+  };
+  for (const entry of index) {
+    const body = await getConversation(entry.id); // decrypted body
+    if (body) out[conversationKey(entry.id)] = body;
+  }
+  return out;
+}
+
+/**
+ * Restore conversations from a (plaintext, portable) backup, re-encrypting each
+ * under the destination's vault when one is unlocked (saveConversation does the
+ * sealing). No vault ⇒ stored plaintext, as before.
+ */
+export async function importConversationsFromBackup(storage: Record<string, unknown>): Promise<void> {
+  const idx = storage[CONVERSATION_INDEX_KEY];
+  if (!Array.isArray(idx)) return;
+  const index = idx as ConversationSummary[];
+  if (Array.isArray(storage[CONVERSATION_LABELS_KEY])) {
+    await saveConversationLabels(storage[CONVERSATION_LABELS_KEY] as ConversationLabel[]);
+  }
+  for (const entry of index) {
+    const body = storage[conversationKey(entry.id)] as StoredConversation | undefined;
+    if (!body) continue;
+    await saveConversation(body, {
+      title: entry.title,
+      updatedAt: entry.updatedAt,
+      messageCount: entry.messageCount,
+      preview: entry.preview,
+      summary: entry.summary,
+    });
+    if (entry.labels?.length) await setConversationLabels(entry.id, entry.labels);
+  }
+}
+
+/** The conversation storage keys a backup carries (so the UI can separate them
+ *  from the bulk config keys it restores directly). */
+export function conversationBackupKeys(storage: Record<string, unknown>): string[] {
+  const idx = storage[CONVERSATION_INDEX_KEY];
+  const ids = Array.isArray(idx) ? (idx as ConversationSummary[]).map((c) => conversationKey(c.id)) : [];
+  return [CONVERSATION_INDEX_KEY, CONVERSATION_LABELS_KEY, ...ids];
+}
+
 /** Seed example skills on first install only (key unset). */
 export async function seedSkillsIfEmpty(): Promise<void> {
   const result = await chrome.storage.local.get(SKILLS_KEY);

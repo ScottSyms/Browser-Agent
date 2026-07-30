@@ -1,29 +1,18 @@
 import { useState } from 'preact/hooks';
 import type { ExportedProduct, ExportedRepo } from '../shared/messages';
-import type { ConversationSummary } from '../shared/types';
+import type { Settings } from '../shared/types';
+import {
+  conversationBackupKeys,
+  exportConversationsForBackup,
+  importConversationsFromBackup,
+  sealSecretsAtRest,
+} from '../background/storage';
+import { getVaultState, vaultDecrypt } from '../background/vault';
 import { saveFile } from './download';
 import { useT } from './i18n';
 
 // chrome.storage.local keys that make up the user's configuration.
 const STORAGE_KEYS = ['ba_settings', 'ba_sites', 'ba_capabilities', 'ba_skills', 'ba_memory', 'ba_memory_graph', 'ba_lessons', 'ba_memory_enabled', 'ba_memory_min_confidence', 'ba_language', 'ba_projects', 'ba_active_project'];
-const CONVERSATION_INDEX_KEY = 'ba_conv_index';
-const CONVERSATION_KEY_PREFIX = 'ba_conv_';
-const CONVERSATION_LABELS_KEY = 'ba_conv_labels';
-
-/**
- * Gather the conversation index, the label registry, and every conversation body
- * for an opt-in export. Labels travel with conversations (they reference them by id).
- */
-async function collectConversationStorage(): Promise<Record<string, unknown>> {
-  const idx = (await chrome.storage.local.get(CONVERSATION_INDEX_KEY))[CONVERSATION_INDEX_KEY];
-  const index = Array.isArray(idx) ? (idx as ConversationSummary[]) : [];
-  const keys = [
-    CONVERSATION_INDEX_KEY,
-    CONVERSATION_LABELS_KEY,
-    ...index.map((c) => `${CONVERSATION_KEY_PREFIX}${c.id}`),
-  ];
-  return (await chrome.storage.local.get(keys)) as Record<string, unknown>;
-}
 
 interface Backup {
   // Current exports tag 'CANChat Agent'; legacy files tagged 'CANAgent' still restore.
@@ -49,9 +38,24 @@ export function BackupRestoreSection({ defaultOpen = false }: { defaultOpen?: bo
     setBusy(true);
     setMessage(null);
     try {
+      // A backup must be portable, so any vault-encrypted content it includes is
+      // decrypted here — which requires the vault unlocked.
+      if ((includeKey || includeConversations) && (await getVaultState()) === 'locked') {
+        throw new Error('Unlock the encryption vault before exporting encrypted content.');
+      }
       const storage = (await chrome.storage.local.get(STORAGE_KEYS)) as Record<string, unknown>;
       if (includeConversations) {
-        Object.assign(storage, await collectConversationStorage());
+        // Decrypted index + bodies (portable), via the storage layer.
+        Object.assign(storage, await exportConversationsForBackup());
+      }
+      if (includeKey && storage.ba_settings && typeof storage.ba_settings === 'object') {
+        // Decrypt the key(s) at rest so the backup carries a usable value.
+        const s = storage.ba_settings as Settings;
+        storage.ba_settings = {
+          ...s,
+          apiKey: (await vaultDecrypt(s.apiKey ?? '')) ?? '',
+          ...(s.ideogramApiKey ? { ideogramApiKey: (await vaultDecrypt(s.ideogramApiKey)) ?? '' } : {}),
+        };
       }
       if (!includeKey && storage.ba_settings && typeof storage.ba_settings === 'object') {
         // Strip the main key and the optional per-service override keys.
@@ -115,8 +119,20 @@ export function BackupRestoreSection({ defaultOpen = false }: { defaultOpen?: bo
         setBusy(false);
         return;
       }
+      // A locked vault can't seal the restored secrets — require unlock first.
+      if ((await getVaultState()) === 'locked') {
+        throw new Error('Unlock the encryption vault before restoring a backup.');
+      }
       if (data.storage && typeof data.storage === 'object') {
-        await chrome.storage.local.set(data.storage);
+        const storage = data.storage as Record<string, unknown>;
+        // Restore the bulk config keys directly, but route the conversation store
+        // through importConversationsFromBackup so it is re-encrypted under the
+        // local vault (a raw set would land plaintext in a vaulted install).
+        const convKeys = new Set(conversationBackupKeys(storage));
+        const bulk = Object.fromEntries(Object.entries(storage).filter(([k]) => !convKeys.has(k)));
+        await chrome.storage.local.set(bulk);
+        await sealSecretsAtRest(); // encrypt the restored API key when a vault is unlocked
+        await importConversationsFromBackup(storage);
       }
       if (Array.isArray(data.repos) && data.repos.length) {
         await chrome.runtime.sendMessage({ type: 'repo_import', repos: data.repos });
