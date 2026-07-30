@@ -561,13 +561,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'schedule_task',
       description:
-        'Create a one-shot or recurring scheduled agent task. The task runs unattended in the background at the requested time using read-only tools where possible; approval-gated tools cannot run unattended and will be recorded as needing approval. Requires user approval because it creates persistent automation.',
+        'Create a one-shot or recurring scheduled agent task. The task runs unattended in the background at the requested time using read-only tools where possible; approval-gated tools cannot run unattended and will be recorded as needing approval. All times are the user\'s LOCAL time (see the current local time in the working state). For "in N minutes/hours" use runInMinutes so the time is computed exactly; do not hand-compute an ISO time. Requires user approval because it creates persistent automation.',
       parameters: {
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Short human-readable task name.' },
           prompt: { type: 'string', description: 'The exact instruction to run when the schedule fires.' },
-          runAt: { type: 'string', description: 'One-shot future run time as an ISO datetime. Omit when using recurrence.' },
+          runInMinutes: { type: 'number', description: 'Run once, this many minutes from now. PREFERRED for relative times like "in 2 minutes" / "in an hour" — computed exactly from the current time. Omit for recurrence or an absolute runAt.' },
+          runAt: { type: 'string', description: 'One-shot absolute run time as an ISO datetime in LOCAL time (e.g. 2026-07-30T15:30). Omit when using runInMinutes or recurrence.' },
           recurrence: {
             type: 'object',
             description: 'Recurring schedule. Use instead of runAt.',
