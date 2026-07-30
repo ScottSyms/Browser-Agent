@@ -152,9 +152,24 @@ export const TOOL_ACTION_CLASS: Record<string, ActionClass> = {
   microsoft365_search: 'read',
   calendar_search: 'read',
   list_scheduled_tasks: 'read',
+  // Navigation / page inspection: opening or moving to a URL to *read* it is
+  // read-class (domain permission), not an approval-worthy action. Committing
+  // actions on the page (click/submit/type) stay gated below.
+  open_url: 'read',
+  navigate: 'read',
+  search_web: 'read',
+  scroll_wheel: 'read',
+  wait_for_page_state: 'read',
+  capture_full_page: 'read',
+  run_subtasks: 'read', // fans out read-only scoped sub-agents
 
-  // --- low-risk write (drafting into an unsent form) --------------------
+  // --- low-risk write (drafting into an unsent form; local-only writes) --
   fill_input: 'low_risk_write',
+  add_to_repo: 'low_risk_write', // ingests a page into the local RAG store (no external effect)
+  create_powerpoint: 'low_risk_write', // generates a local file, like create_word_document
+  save_memory: 'low_risk_write', // local memory note
+  update_memory: 'low_risk_write',
+  delete_memory: 'low_risk_write', // local note removal — not an external record deletion
 
   // --- external communication / outbound with the user's session -------
   submit_form: 'external_comms',

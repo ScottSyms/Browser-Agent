@@ -106,6 +106,20 @@ describe('classifyTool', () => {
     expect(classifyTool('some_new_tool', READ_ONLY)).toBe('external_comms');
   });
 
+  it('does NOT gate navigation/read tools (regression: open_url etc. must not prompt)', () => {
+    for (const tool of ['open_url', 'navigate', 'search_web', 'scroll_wheel', 'wait_for_page_state', 'capture_full_page', 'run_subtasks']) {
+      const d = evaluatePolicy(base({ tool, actionClass: classifyTool(tool, READ_ONLY) }));
+      expect(d.kind, `${tool} should be allowed without approval`).toBe('allow');
+    }
+  });
+
+  it('treats local-only writes (memory, repo ingest, file gen) as low-risk, no prompt', () => {
+    for (const tool of ['add_to_repo', 'save_memory', 'update_memory', 'delete_memory', 'create_powerpoint']) {
+      const d = evaluatePolicy(base({ tool, actionClass: classifyTool(tool, READ_ONLY) }));
+      expect(d.kind, `${tool} should be allowed without approval`).toBe('allow');
+    }
+  });
+
   it('never classifies a page-mutating tool as read', () => {
     for (const [tool, cls] of Object.entries(TOOL_ACTION_CLASS)) {
       if (cls === 'read') expect(tool).not.toMatch(/submit|click|run_javascript|drag|press_keys/);
