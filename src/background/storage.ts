@@ -86,6 +86,11 @@ export interface StoredConversation {
 // When an encryption vault is configured (see vault.ts), secret fields are
 // stored as `enc:v1:` envelopes; getSettings transparently decrypts them, and a
 // *locked* vault yields null so the agent stays inert until the user unlocks.
+// Optional per-service secret overrides, encrypted at rest alongside `apiKey`.
+// `apiKey` is handled separately because it is required and drives the
+// locked⇒null behavior.
+export const OPTIONAL_SECRET_FIELDS = ['ideogramApiKey', 'embeddingApiKey', 'transcriptionApiKey'] as const;
+
 export async function getSettings(): Promise<Settings | null> {
   const result = await chrome.storage.local.get(SETTINGS_KEY);
   const settings = result[SETTINGS_KEY] as Settings | undefined;
@@ -93,9 +98,8 @@ export async function getSettings(): Promise<Settings | null> {
   const apiKey = await vaultDecrypt(settings.apiKey);
   if (apiKey === null) return null; // encrypted but vault locked/erased
   const out: Settings = { ...settings, apiKey };
-  if (settings.ideogramApiKey) {
-    const ideo = await vaultDecrypt(settings.ideogramApiKey);
-    out.ideogramApiKey = ideo ?? undefined;
+  for (const f of OPTIONAL_SECRET_FIELDS) {
+    if (settings[f]) out[f] = (await vaultDecrypt(settings[f]!)) ?? undefined;
   }
   return out;
 }
@@ -113,9 +117,8 @@ export async function getSettingsForEdit(): Promise<{ settings: Settings; locked
     if (dec === null) return { settings: { ...settings, apiKey: '' }, locked: true };
     settings.apiKey = dec;
   }
-  if (settings.ideogramApiKey) {
-    const dec = await vaultDecrypt(settings.ideogramApiKey);
-    settings.ideogramApiKey = dec ?? undefined;
+  for (const f of OPTIONAL_SECRET_FIELDS) {
+    if (settings[f]) settings[f] = (await vaultDecrypt(settings[f]!)) ?? undefined;
   }
   return { settings, locked: false };
 }
@@ -127,7 +130,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
     throw new Error('The encryption vault is locked. Unlock it before saving connection settings.');
   }
   const toStore: Settings = { ...settings, apiKey: await vaultEncrypt(settings.apiKey) };
-  if (settings.ideogramApiKey) toStore.ideogramApiKey = await vaultEncrypt(settings.ideogramApiKey);
+  for (const f of OPTIONAL_SECRET_FIELDS) {
+    if (settings[f]) toStore[f] = await vaultEncrypt(settings[f]!);
+  }
   await chrome.storage.local.set({ [SETTINGS_KEY]: toStore });
 }
 
@@ -442,6 +447,67 @@ export async function clearAllConversations(): Promise<void> {
     CONVERSATION_INDEX_KEY,
     ...index.map((c) => conversationKey(c.id)),
   ]);
+}
+
+// --- portable backup (decrypt on export, re-encrypt on import) ----------------
+// A backup must be readable on another install, so vault-encrypted content is
+// decrypted on export (like the RAG store already does) and re-sealed under the
+// destination's vault on import. Repos/products go through their own export/import
+// paths; these two cover the conversation store.
+
+/**
+ * Conversation storage for a portable backup — index, label registry, and every
+ * body, all DECRYPTED. Throws if a vault is locked, since the content can't be
+ * read to make it portable.
+ */
+export async function exportConversationsForBackup(): Promise<Record<string, unknown>> {
+  if ((await getVaultState()) === 'locked') {
+    throw new Error('Unlock the encryption vault to include conversations in the backup.');
+  }
+  const index = await getConversationIndex(); // decrypted display fields
+  const out: Record<string, unknown> = {
+    [CONVERSATION_INDEX_KEY]: index,
+    [CONVERSATION_LABELS_KEY]: await getConversationLabels(),
+  };
+  for (const entry of index) {
+    const body = await getConversation(entry.id); // decrypted body
+    if (body) out[conversationKey(entry.id)] = body;
+  }
+  return out;
+}
+
+/**
+ * Restore conversations from a (plaintext, portable) backup, re-encrypting each
+ * under the destination's vault when one is unlocked (saveConversation does the
+ * sealing). No vault ⇒ stored plaintext, as before.
+ */
+export async function importConversationsFromBackup(storage: Record<string, unknown>): Promise<void> {
+  const idx = storage[CONVERSATION_INDEX_KEY];
+  if (!Array.isArray(idx)) return;
+  const index = idx as ConversationSummary[];
+  if (Array.isArray(storage[CONVERSATION_LABELS_KEY])) {
+    await saveConversationLabels(storage[CONVERSATION_LABELS_KEY] as ConversationLabel[]);
+  }
+  for (const entry of index) {
+    const body = storage[conversationKey(entry.id)] as StoredConversation | undefined;
+    if (!body) continue;
+    await saveConversation(body, {
+      title: entry.title,
+      updatedAt: entry.updatedAt,
+      messageCount: entry.messageCount,
+      preview: entry.preview,
+      summary: entry.summary,
+    });
+    if (entry.labels?.length) await setConversationLabels(entry.id, entry.labels);
+  }
+}
+
+/** The conversation storage keys a backup carries (so the UI can separate them
+ *  from the bulk config keys it restores directly). */
+export function conversationBackupKeys(storage: Record<string, unknown>): string[] {
+  const idx = storage[CONVERSATION_INDEX_KEY];
+  const ids = Array.isArray(idx) ? (idx as ConversationSummary[]).map((c) => conversationKey(c.id)) : [];
+  return [CONVERSATION_INDEX_KEY, CONVERSATION_LABELS_KEY, ...ids];
 }
 
 /** Seed example skills on first install only (key unset). */

@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ENC_PREFIX } from '../shared/crypto';
 import type { ConversationSummary } from '../shared/types';
 import {
+  clearAllConversations,
   deleteConversation,
+  exportConversationsForBackup,
   getConversation,
   getConversationIndex,
+  importConversationsFromBackup,
   saveConversation,
   type StoredConversation,
 } from './storage';
@@ -116,5 +119,46 @@ describe('conversation encryption at rest', () => {
 
     await unlockVault('pw');
     expect((await getConversationIndex()).find((e) => e.id === 'c1')!.title).toBe('Keep me');
+  });
+});
+
+describe('portable backup (decrypt on export, re-encrypt on import)', () => {
+  it('exports decrypted content even though it is encrypted at rest', async () => {
+    await setupVault('pw');
+    await saveConversation(convo('c1', 'Merger memo', 'confidential'), summaryOf('Merger memo', 'confidential'));
+
+    const backup = await exportConversationsForBackup();
+    // On disk: ciphertext. In the backup payload: plaintext (portable).
+    expect(JSON.stringify(local['ba_conv_c1'])).not.toContain('confidential');
+    const body = backup['ba_conv_c1'] as StoredConversation;
+    expect(body.messages[0].text).toBe('confidential');
+    const idx = backup['ba_conv_index'] as ConversationSummary[];
+    expect(idx[0].title).toBe('Merger memo');
+  });
+
+  it('refuses to export conversations while the vault is locked', async () => {
+    await setupVault('pw');
+    await saveConversation(convo('c1', 'x', 'y'), summaryOf('x', 'y'));
+    await lockVault();
+    await expect(exportConversationsForBackup()).rejects.toThrow(/Unlock the encryption vault/);
+  });
+
+  it('re-encrypts a plaintext backup on import under the destination vault', async () => {
+    // A backup produced elsewhere: plaintext bodies + index.
+    const backup: Record<string, unknown> = {
+      ba_conv_index: [{ ...summaryOf('Roadmap', 'q3 plans'), id: 'c9', createdAt: '2026-01-01T00:00:00Z' }],
+      ba_conv_c9: convo('c9', 'Roadmap', 'q3 plans'),
+    };
+    // Destination install has its own vault, unlocked.
+    await setupVault('dest-pw');
+    await clearAllConversations();
+    await importConversationsFromBackup(backup);
+
+    // Stored sealed…
+    expect(JSON.stringify(local['ba_conv_c9'])).not.toContain('q3 plans');
+    expect((local['ba_conv_index'] as ConversationSummary[])[0].title.startsWith(ENC_PREFIX)).toBe(true);
+    // …and readable through the decrypting API.
+    expect((await getConversation('c9'))?.messages[0].text).toBe('q3 plans');
+    expect((await getConversationIndex())[0].title).toBe('Roadmap');
   });
 });
