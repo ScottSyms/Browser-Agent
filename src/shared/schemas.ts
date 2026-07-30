@@ -540,6 +540,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'start_research_job',
+      description:
+        'Start a DURABLE, long-running deep-research job that runs in the BACKGROUND for minutes to hours, surviving browser idle and restarts. It decomposes the objective into web searches, reads many sources in parallel via read-only sub-agents (each in its own background tab), follows leads to a bounded depth, and produces a cited Markdown report saved to Products. Use this for exhaustive/large research the user wants done over time rather than a quick inline answer. Returns immediately with a job id; progress and controls are in the Jobs console. Read-only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          objective: { type: 'string', description: 'The research question/objective to investigate exhaustively.' },
+          title: { type: 'string', description: 'Short name for the job (shown in the Jobs console).' },
+          maxSources: { type: 'number', description: 'Cap on total sources to analyze (default 60).' },
+          maxDepth: { type: 'number', description: 'Follow-up rounds of leads to pursue (default 2).' },
+          ...reasonParam,
+        },
+        required: ['objective', 'reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'schedule_task',
       description:
         'Create a one-shot or recurring scheduled agent task. The task runs unattended in the background at the requested time using read-only tools where possible; approval-gated tools cannot run unattended and will be recorded as needing approval. Requires user approval because it creates persistent automation.',

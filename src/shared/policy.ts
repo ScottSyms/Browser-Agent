@@ -167,6 +167,7 @@ export const TOOL_ACTION_CLASS: Record<string, ActionClass> = {
   save_as_skill: 'record_modification',
   save_app_playbook: 'record_modification',
   schedule_task: 'record_modification',
+  start_research_job: 'record_modification', // starts persistent background automation — confirm first
 
   // --- destructive (irreversible, or arbitrary code) --------------------
   cancel_scheduled_task: 'destructive',

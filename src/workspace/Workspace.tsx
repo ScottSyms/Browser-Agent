@@ -18,9 +18,10 @@ import { MemorySection } from '../sidebar/MemorySection';
 import { ProductsPage } from './ProductsPage';
 import { ProjectsPage } from './ProjectsPage';
 import { AuditPage } from './AuditPage';
+import { JobsPage } from './JobsPage';
 
-type WorkspaceView = 'chat' | 'projects' | 'knowledge' | 'tools' | 'skills' | 'models' | 'memory' | 'automations' | 'products' | 'audit' | 'data' | 'image' | 'settings';
-const VALID_VIEWS: WorkspaceView[] = ['chat', 'projects', 'knowledge', 'tools', 'skills', 'models', 'memory', 'automations', 'products', 'audit', 'data', 'image', 'settings'];
+type WorkspaceView = 'chat' | 'projects' | 'knowledge' | 'tools' | 'skills' | 'models' | 'memory' | 'automations' | 'jobs' | 'products' | 'audit' | 'data' | 'image' | 'settings';
+const VALID_VIEWS: WorkspaceView[] = ['chat', 'projects', 'knowledge', 'tools', 'skills', 'models', 'memory', 'automations', 'jobs', 'products', 'audit', 'data', 'image', 'settings'];
 
 function initialView(): WorkspaceView {
   const fromHash = location.hash.slice(1) as WorkspaceView;
@@ -126,6 +127,8 @@ export function Workspace() {
         );
       case 'automations':
         return <AutomationsPage />;
+      case 'jobs':
+        return <JobsPage />;
       case 'products':
         return <ProductsPage />;
       case 'audit':
@@ -174,6 +177,7 @@ export function Workspace() {
           <button class={`ws-nav-btn ${view === 'knowledge' ? 'is-active' : ''}`} onClick={() => setView('knowledge')}>{t('workspace.nav.knowledge')}</button>
           <button class={`ws-nav-btn ${view === 'memory' ? 'is-active' : ''}`} onClick={() => setView('memory')}>{t('workspace.nav.memory')}</button>
           <button class={`ws-nav-btn ${view === 'automations' ? 'is-active' : ''}`} onClick={() => setView('automations')}>{t('workspace.nav.automations')}</button>
+          <button class={`ws-nav-btn ${view === 'jobs' ? 'is-active' : ''}`} onClick={() => setView('jobs')}>Jobs</button>
           <button class={`ws-nav-btn ${view === 'products' ? 'is-active' : ''}`} onClick={() => setView('products')}>{t('workspace.nav.products')}</button>
           <button class={`ws-nav-btn ${view === 'audit' ? 'is-active' : ''}`} onClick={() => setView('audit')}>Audit</button>
           <button class={`ws-nav-btn ${view === 'skills' ? 'is-active' : ''}`} onClick={() => setView('skills')}>{t('workspace.nav.skills')}</button>
