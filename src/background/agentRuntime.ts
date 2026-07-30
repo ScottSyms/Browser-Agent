@@ -29,6 +29,7 @@ import { redactArgs, sha256Hex, type AuditEvent } from '../shared/audit';
 import { appendAuditEvent, deleteAuditLog } from '../shared/auditLog';
 import { clearCheckpoint, readCheckpoint, writeCheckpoint } from '../shared/checkpoint';
 import { buildResumePrompt, MAX_RECOVERY_ATTEMPTS, reconcileTabs, shouldAutoResume } from '../shared/recovery';
+import { getVaultState } from './vault';
 import type { BackgroundEvent } from '../shared/messages';
 import { MEMORY_TOOL_DEFINITIONS, TOOL_DEFINITIONS } from '../shared/schemas';
 import { LANGUAGE_STORAGE_KEY, resolveLang, translate, type LangPref } from '../sidebar/i18n';
@@ -1522,7 +1523,11 @@ export class AgentRuntime {
     }
     const record = await getConversation(id);
     if (!record) {
-      this.emit({ type: 'error', message: 'That conversation could not be found (it may have been deleted).' });
+      const message =
+        (await getVaultState()) === 'locked'
+          ? 'Unlock the encryption vault to open this conversation.'
+          : 'That conversation could not be found (it may have been deleted).';
+      this.emit({ type: 'error', message });
       return;
     }
     this.conversation = record.conversation ?? [];

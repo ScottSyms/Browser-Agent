@@ -22,7 +22,7 @@ import type {
   Skill,
 } from '../shared/types';
 import type { LlmMessage } from './llmProvider';
-import { getVaultState, vaultDecrypt, vaultEncrypt } from './vault';
+import { getVaultState, isVaultUnlocked, vaultDecrypt, vaultEncrypt } from './vault';
 
 const SETTINGS_KEY = 'ba_settings';
 const SITES_KEY = 'ba_sites';
@@ -280,34 +280,104 @@ export async function saveLessons(entries: LessonEntry[]): Promise<void> {
   await chrome.storage.local.set({ [LESSONS_KEY]: entries.slice(0, LESSON_MAX_ENTRIES) });
 }
 
-/** The History list, newest-first. Read by the runtime and (directly) the UI. */
-export async function getConversationIndex(): Promise<ConversationSummary[]> {
+// --- conversation encryption at rest -----------------------------------------
+// When a vault is unlocked, a conversation BODY is stored as a single `{ __enc }`
+// envelope and the index's human-readable fields (title/preview/summary) are
+// encrypted, so neither the transcript nor the History list leaks content on
+// disk. Structural index fields (id, timestamps, counts, labels, project) stay
+// plaintext so the list still renders — with "🔒 Locked" placeholders — while
+// the vault is locked. No vault ⇒ everything is plaintext, exactly as before.
+//
+// Mutations operate on the RAW (still-encrypted) index and never decrypt-then-
+// re-encrypt, so a delete/label change made while the vault is locked can't
+// clobber the real (encrypted) titles with locked placeholders.
+
+const LOCKED_PLACEHOLDER = '🔒 Locked';
+
+interface EncryptedEnvelope {
+  __enc: string;
+}
+function isEnvelope(v: unknown): v is EncryptedEnvelope {
+  return !!v && typeof v === 'object' && typeof (v as EncryptedEnvelope).__enc === 'string';
+}
+
+/** The index exactly as stored (encrypted strings when a vault is/was active). */
+async function getConversationIndexRaw(): Promise<ConversationSummary[]> {
   const result = await chrome.storage.local.get(CONVERSATION_INDEX_KEY);
   const index = result[CONVERSATION_INDEX_KEY];
   return Array.isArray(index) ? (index as ConversationSummary[]) : [];
 }
 
-/** Load one full conversation body, or null if it has been pruned/deleted. */
+async function setConversationIndexRaw(entries: ConversationSummary[]): Promise<void> {
+  await chrome.storage.local.set({ [CONVERSATION_INDEX_KEY]: entries });
+}
+
+async function encryptIndexEntry(e: ConversationSummary): Promise<ConversationSummary> {
+  return {
+    ...e,
+    title: await vaultEncrypt(e.title),
+    preview: await vaultEncrypt(e.preview),
+    ...(e.summary !== undefined ? { summary: await vaultEncrypt(e.summary) } : {}),
+  };
+}
+
+async function decryptIndexEntry(e: ConversationSummary): Promise<ConversationSummary> {
+  const title = await vaultDecrypt(e.title);
+  const preview = await vaultDecrypt(e.preview);
+  const summary = e.summary !== undefined ? await vaultDecrypt(e.summary) : undefined;
+  return {
+    ...e,
+    title: title ?? LOCKED_PLACEHOLDER,
+    preview: preview ?? '',
+    summary: summary === null ? undefined : summary,
+  };
+}
+
+async function writeConversationBody(record: StoredConversation): Promise<void> {
+  const value = (await isVaultUnlocked()) ? { __enc: await vaultEncrypt(JSON.stringify(record)) } : record;
+  await chrome.storage.local.set({ [conversationKey(record.id)]: value });
+}
+
+/** The History list, newest-first, with content fields decrypted for display. */
+export async function getConversationIndex(): Promise<ConversationSummary[]> {
+  return Promise.all((await getConversationIndexRaw()).map(decryptIndexEntry));
+}
+
+/** Load one full conversation body, decrypted. Null if missing, or if a vault-
+ *  encrypted body can't be read (locked/erased). */
 export async function getConversation(id: string): Promise<StoredConversation | null> {
   const key = conversationKey(id);
   const result = await chrome.storage.local.get(key);
-  return (result[key] as StoredConversation | undefined) ?? null;
+  const raw = result[key];
+  if (raw === undefined || raw === null) return null;
+  if (isEnvelope(raw)) {
+    const json = await vaultDecrypt(raw.__enc);
+    if (json === null) return null; // vault locked or erased
+    try {
+      return JSON.parse(json) as StoredConversation;
+    } catch {
+      return null;
+    }
+  }
+  return raw as StoredConversation; // legacy plaintext body
 }
 
 /**
  * Upsert a conversation: write its body, refresh its index entry, then prune the
  * index back to MAX_SAVED_CONVERSATIONS (deleting the evicted bodies too). The
- * caller supplies the summary fields it derived from the transcript.
+ * caller supplies the summary fields it derived from the transcript. Reads the
+ * raw index (structural fields are plaintext) and encrypts only the new entry's
+ * strings, leaving other entries' stored ciphertext untouched.
  */
 export async function saveConversation(
   record: StoredConversation,
   summary: Omit<ConversationSummary, 'id' | 'createdAt'>,
 ): Promise<void> {
-  await chrome.storage.local.set({ [conversationKey(record.id)]: record });
+  await writeConversationBody(record);
 
-  const index = await getConversationIndex();
+  const index = await getConversationIndexRaw();
   const existing = index.find((c) => c.id === record.id);
-  const entry: ConversationSummary = {
+  const entry = await encryptIndexEntry({
     id: record.id,
     createdAt: existing?.createdAt ?? record.createdAt,
     ...summary,
@@ -318,10 +388,10 @@ export async function saveConversation(
     // The project a conversation was started under is stamped once and never
     // changes on later autosaves, same reasoning as labels above.
     projectId: existing?.projectId ?? record.projectId,
-  };
+  });
   const next = [...index.filter((c) => c.id !== record.id), entry];
   const { kept, evicted } = pruneIndex(next, MAX_SAVED_CONVERSATIONS);
-  await chrome.storage.local.set({ [CONVERSATION_INDEX_KEY]: kept });
+  await setConversationIndexRaw(kept);
   if (evicted.length > 0) {
     await chrome.storage.local.remove(evicted.map(conversationKey));
   }
@@ -344,28 +414,30 @@ export async function saveConversationLabels(labels: ConversationLabel[]): Promi
  * carries the assignment). Routed through the runtime to avoid racing autosave.
  */
 export async function setConversationLabels(id: string, labels: string[]): Promise<void> {
-  const index = await getConversationIndex();
-  const next = index.map((c) => (c.id === id ? { ...c, labels } : c));
-  await chrome.storage.local.set({ [CONVERSATION_INDEX_KEY]: next });
+  // Operate on the raw index: labels are structural (plaintext) so this never
+  // needs to touch — or risk clobbering — the encrypted title/preview/summary.
+  const index = await getConversationIndexRaw();
+  await setConversationIndexRaw(index.map((c) => (c.id === id ? { ...c, labels } : c)));
 
+  // Mirror onto the body only if it is readable (writeConversationBody re-encrypts
+  // it when the vault is unlocked). A locked vault skips this; the index is the
+  // source of truth for display anyway.
   const body = await getConversation(id);
   if (body) {
-    await chrome.storage.local.set({ [conversationKey(id)]: { ...body, labels } });
+    await writeConversationBody({ ...body, labels });
   }
 }
 
 /** Remove a conversation's body and its index entry. */
 export async function deleteConversation(id: string): Promise<void> {
-  const index = await getConversationIndex();
-  await chrome.storage.local.set({
-    [CONVERSATION_INDEX_KEY]: index.filter((c) => c.id !== id),
-  });
+  const index = await getConversationIndexRaw();
+  await setConversationIndexRaw(index.filter((c) => c.id !== id));
   await chrome.storage.local.remove(conversationKey(id));
 }
 
 /** Remove every saved conversation: all body records and the index itself. */
 export async function clearAllConversations(): Promise<void> {
-  const index = await getConversationIndex();
+  const index = await getConversationIndexRaw();
   await chrome.storage.local.remove([
     CONVERSATION_INDEX_KEY,
     ...index.map((c) => conversationKey(c.id)),

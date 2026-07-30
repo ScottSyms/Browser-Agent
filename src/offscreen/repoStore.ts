@@ -6,6 +6,30 @@ import type { ExportedRepo, RepoKind } from '../shared/messages';
 import { hybridSearch, multiHybridSearch } from '../shared/hybridSearch';
 import { buildKeywordIndex, extendKeywordIndex, type KeywordIndex } from '../shared/keywordSearch';
 import { normalizeVector, quantizeVector, searchVectors, type SearchHit } from '../shared/vectorSearch';
+import { getVaultState, isVaultUnlocked, vaultDecrypt, vaultEncrypt } from '../background/vault';
+
+// Content-bearing repo files are encrypted at rest when a vault is active
+// (specification.md §24.6): the chunk text and the keyword (BM25) index built
+// from it. vectors.bin (opaque int8 embeddings) and meta.json (the catalogue —
+// doc names, counts, calibration) stay plaintext so the Knowledge list still
+// works while locked. readJson/writeJson below transparently (de)crypt these two
+// files, so every call site is covered with no other change.
+const ENCRYPTED_FILES = new Set(['chunks.json', 'keywordIndex.json']);
+
+interface EncEnvelope {
+  __enc: string;
+}
+
+/**
+ * Refuse repo reads/writes while a vault exists but is locked: a write would
+ * clobber ciphertext with plaintext, and a read would silently return nothing.
+ * No vault or unlocked ⇒ proceed. Knowledge is sealed until the user unlocks.
+ */
+async function assertVaultUsable(): Promise<void> {
+  if ((await getVaultState()) === 'locked') {
+    throw new Error('Unlock the encryption vault to use knowledge repositories.');
+  }
+}
 
 interface DocMeta {
   id: string;
@@ -62,16 +86,27 @@ async function readJson<T>(dir: FileSystemDirectoryHandle, file: string, fallbac
   try {
     const handle = await dir.getFileHandle(file);
     const text = await (await handle.getFile()).text();
-    return text ? (JSON.parse(text) as T) : fallback;
+    if (!text) return fallback;
+    const parsed = JSON.parse(text);
+    if (ENCRYPTED_FILES.has(file) && parsed && typeof parsed === 'object' && typeof (parsed as EncEnvelope).__enc === 'string') {
+      const json = await vaultDecrypt((parsed as EncEnvelope).__enc);
+      if (json === null) return fallback; // vault locked/erased (callers gate on this)
+      return JSON.parse(json) as T;
+    }
+    return parsed as T; // plaintext (no vault, or a non-encrypted file)
   } catch {
     return fallback;
   }
 }
 
 async function writeJson(dir: FileSystemDirectoryHandle, file: string, obj: unknown): Promise<void> {
+  let payload = JSON.stringify(obj);
+  if (ENCRYPTED_FILES.has(file) && (await isVaultUnlocked())) {
+    payload = JSON.stringify({ __enc: await vaultEncrypt(payload) } satisfies EncEnvelope);
+  }
   const handle = await dir.getFileHandle(file, { create: true });
   const w = await handle.createWritable();
-  await w.write(JSON.stringify(obj));
+  await w.write(payload);
   await w.close();
 }
 
@@ -135,6 +170,7 @@ export async function repoAdd(
   if (chunks.length === 0 || vectors.length !== chunks.length) {
     throw new Error('repoAdd: chunk/vector count mismatch.');
   }
+  await assertVaultUsable();
   const dir = await repoDir(repo);
   const meta = await readJson<RepoMeta>(dir, 'meta.json', {
     name: repo,
@@ -201,6 +237,7 @@ export async function repoSearch(
   embedModel?: string,
   opts: { query?: string; hybrid?: boolean; queryVectors?: number[][]; queries?: string[] } = {},
 ): Promise<{ results: SearchHit[] }> {
+  await assertVaultUsable();
   const dir = await repoDir(repo);
   const meta = await readJson<RepoMeta | null>(dir, 'meta.json', null);
   if (!meta || meta.chunkCount === 0) return { results: [] };
@@ -286,6 +323,7 @@ function b64ToU8(b64: string): Uint8Array {
 
 /** Serialize every repository (meta + chunks + base64 vectors) for backup. */
 export async function repoExportAll(): Promise<ExportedRepo[]> {
+  await assertVaultUsable(); // export decrypts chunk text, so needs the vault unlocked
   const out: ExportedRepo[] = [];
   const dir = await reposDir();
   // @ts-expect-error - entries() exists on FileSystemDirectoryHandle in Chrome
@@ -304,6 +342,7 @@ export async function repoExportAll(): Promise<ExportedRepo[]> {
 
 /** Restore repositories from a backup, overwriting any with the same name. */
 export async function repoImportAll(repos: ExportedRepo[]): Promise<{ imported: number }> {
+  await assertVaultUsable(); // import re-encrypts chunk text under the active vault
   const root = await reposDir();
   let imported = 0;
   for (const r of repos) {
@@ -333,6 +372,7 @@ export async function repoDocs(repo: string): Promise<DocMeta[]> {
 
 /** Remove one document from a repo, rebuilding vectors.bin + chunks.json + meta. */
 export async function repoDeleteDoc(repo: string, docId: string): Promise<{ removed: number; chunkCount: number }> {
+  await assertVaultUsable(); // rebuilds chunks.json + keywordIndex.json, so needs decryptable content
   const dir = await repoDir(repo);
   const meta = await readJson<RepoMeta | null>(dir, 'meta.json', null);
   if (!meta) return { removed: 0, chunkCount: 0 };
