@@ -114,7 +114,7 @@ export function RepoUpload({
         class={`repo-drop${dragOver ? ' drag-over' : ''}`}
         onDragOver={(e) => {
           const types = e.dataTransfer?.types;
-          if (types?.includes('Files') || types?.includes('text/html')) {
+          if (types?.includes('Files') || types?.includes('text/html') || types?.includes('text/plain')) {
             e.preventDefault();
             setDragOver(true);
           }

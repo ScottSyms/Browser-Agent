@@ -395,13 +395,16 @@ on your device like any other document. (Large binary `.msg` files aren't parsed
 yet — dragging the message itself uses its text, which works across most Outlook
 versions.)
 
-> **On macOS, copy-paste instead of dragging.** Chrome side panels can't receive
-> a drag from another app (or another tab) on the Mac, so **copy the email in
-> Outlook (⌘C), then paste (⌘V)** — either directly in the chat composer, or after
-> clicking anywhere on the panel. The same preview appears and it's added to a
-> knowledge base. (For an email open in **Outlook Web**, you can also just ask the
-> agent to "save this page to my X knowledge base.") Drag-and-drop remains the
-> quick path on Windows.
+> **On macOS.** Dragging works from some apps (e.g. **Apple Mail**) — drop the
+> message onto the panel and the preview appears. Other apps (notably **Outlook**)
+> expose the drag in a format the panel can't read, so use **copy-paste** instead:
+> copy the email (⌘C), **click the panel once** (not the text box), then **paste
+> (⌘V)**. Pasting a copied email directly in the composer also works when the
+> message carries its sender/subject header. For an email open in **Outlook Web**,
+> you can instead just ask the agent to "save this page to my X knowledge base."
+> If a drop or paste can't be read, a small banner shows the data types it saw —
+> useful for reporting an unsupported source. Drag-and-drop is the quick path on
+> Windows.
 
 **Index a local folder.** In **Workspace → Knowledge**, **drag a folder from
 Finder/Explorer onto the drop box**. Its files and subfolders (text, Markdown, PDF,
