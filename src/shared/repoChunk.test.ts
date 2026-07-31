@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chunkText, normalizeUrl } from './repoChunk';
+import { batchArray, chunkText, normalizeUrl } from './repoChunk';
 
 describe('chunkText', () => {
   it('returns a single chunk for short text', () => {
@@ -44,5 +44,24 @@ describe('normalizeUrl', () => {
   });
   it('falls back to a trimmed string for non-URL input', () => {
     expect(normalizeUrl('  not a url  ')).toBe('not a url');
+  });
+});
+
+describe('batchArray', () => {
+  it('splits into fixed-size batches with a smaller final batch', () => {
+    expect(batchArray([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+  });
+  it('returns one batch when the array fits', () => {
+    expect(batchArray([1, 2, 3], 8)).toEqual([[1, 2, 3]]);
+  });
+  it('preserves order and total count across batches', () => {
+    const items = Array.from({ length: 25 }, (_, i) => i);
+    const batches = batchArray(items, 8);
+    expect(batches).toHaveLength(4); // 8 + 8 + 8 + 1
+    expect(batches.flat()).toEqual(items);
+    expect(batches.every((b) => b.length <= 8)).toBe(true);
+  });
+  it('returns [] for an empty array', () => {
+    expect(batchArray([], 8)).toEqual([]);
   });
 });
