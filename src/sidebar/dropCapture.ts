@@ -26,10 +26,22 @@ export interface DroppedItem {
   email?: EmailPreview;
 }
 
-/** Whether a drag carries something we can add (files, or an Outlook-style email). */
+/** Whether a drag carries something we can add (files, or dragged email text). */
 export function dragHasContent(types: readonly string[] | undefined): boolean {
   if (!types) return false;
-  return types.includes('Files') || types.includes('text/html');
+  // text/plain included so an email dragged from an app that exposes only plain
+  // text (some Outlook builds) still lights up the overlay; the internal-drag
+  // guard keeps in-panel text drags from triggering it.
+  return types.includes('Files') || types.includes('text/html') || types.includes('text/plain');
+}
+
+/** Human-readable list of what a drop/paste offered — for a "couldn't read it" diagnostic. */
+export function describeTypes(dt: DataTransfer | null): string {
+  if (!dt) return '';
+  const parts = Array.from(dt.types ?? []);
+  const files = Array.from(dt.files ?? []);
+  if (files.length) parts.push(`files: ${files.map((f) => f.name || f.type || '?').join(', ')}`);
+  return parts.join(', ');
 }
 
 function safeGetData(dt: DataTransfer, type: string): string {

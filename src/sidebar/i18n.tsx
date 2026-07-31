@@ -203,7 +203,8 @@ const EN: Dict = {
   'repos.upload.working': 'Adding…',
   'repos.upload.queued': 'queued',
   'repos.dropOverlay.title': 'Drop to add to a knowledge base',
-  'repos.dropOverlay.note': 'A file, or an email dragged from Outlook',
+  'repos.dropOverlay.note': 'A file, or an email dragged/pasted from Mail or Outlook',
+  'repos.dropUnreadable': "Couldn't read a file or email from that. It offered:",
   'repos.upload.addedOne': 'added ({c})',
   'repos.upload.skippedOne': 'skipped — {why}',
   // status
@@ -619,7 +620,8 @@ const FR: Dict = {
   'repos.upload.working': 'Ajout…',
   'repos.upload.queued': 'en attente',
   'repos.dropOverlay.title': 'Déposez pour ajouter à une base de connaissances',
-  'repos.dropOverlay.note': 'Un fichier, ou un courriel glissé depuis Outlook',
+  'repos.dropOverlay.note': 'Un fichier, ou un courriel glissé/collé depuis Mail ou Outlook',
+  'repos.dropUnreadable': "Impossible de lire un fichier ou un courriel. Types proposés :",
   'repos.upload.addedOne': 'ajouté ({c})',
   'repos.upload.skippedOne': 'ignoré — {why}',
   // status

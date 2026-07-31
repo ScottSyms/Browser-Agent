@@ -20,7 +20,7 @@ import type {
   ToolActivity,
 } from '../shared/types';
 import { ChatPanel } from './ChatPanel';
-import { captureDrop, clipboardIsEmail, dragHasContent, type DroppedItem } from './dropCapture';
+import { captureDrop, describeTypes, dragHasContent, type DroppedItem } from './dropCapture';
 import { ConversationsScreen } from './ConversationsScreen';
 import { OnboardingScreen } from './OnboardingScreen';
 import { ProjectSwitcher } from './ProjectSwitcher';
@@ -125,6 +125,10 @@ export function Sidebar() {
   const dragDepth = useRef(0);
   const internalDrag = useRef(false);
   const [pendingDrop, setPendingDrop] = useState<DroppedItem[] | null>(null);
+  // Shown when a drop/paste offered data we couldn't read into a file/email,
+  // listing the MIME types so an unrecognised source (e.g. an Outlook build) is
+  // diagnosable rather than silently ignored.
+  const [dropNotice, setDropNotice] = useState<string | null>(null);
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
   const [activities, setActivities] = useState<ToolActivity[]>([]);
@@ -302,11 +306,16 @@ export function Sidebar() {
       const el = document.activeElement as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       const cd = e.clipboardData;
-      if (!cd || (!clipboardIsEmail(cd) && !cd.files?.length)) return;
+      if (!cd || !cd.types.length) return;
+      // Focus isn't in the composer, so a paste here is a deliberate "add this" —
+      // capture anything readable (email HTML/text or files), not just a strict
+      // email. This is the reliable Outlook path on macOS: click the panel, ⌘V.
       const items = captureDrop(cd);
       if (items.length) {
         e.preventDefault();
         setPendingDrop(items);
+      } else {
+        setDropNotice(describeTypes(cd));
       }
     };
     document.addEventListener('paste', onPaste);
@@ -340,6 +349,7 @@ export function Sidebar() {
     const items = captureDrop(e.dataTransfer ?? null);
     if (wasActive || items.length) e.preventDefault();
     if (items.length) setPendingDrop(items);
+    else if (wasActive) setDropNotice(describeTypes(e.dataTransfer ?? null));
   };
 
   return (
@@ -365,6 +375,15 @@ export function Sidebar() {
             <span class="drop-overlay-title">{t('repos.dropOverlay.title')}</span>
             <span class="drop-overlay-note">{t('repos.dropOverlay.note')}</span>
           </div>
+        </div>
+      )}
+
+      {dropNotice && (
+        <div class="banner banner-warn">
+          <span class="banner-msg">{t('repos.dropUnreadable')} <code>{dropNotice}</code></span>
+          <button class="icon-btn" aria-label={t('common.dismiss')} title={t('common.dismiss')} onClick={() => setDropNotice(null)}>
+            ✕
+          </button>
         </div>
       )}
       <header class="header">
