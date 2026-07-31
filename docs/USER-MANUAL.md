@@ -396,15 +396,17 @@ yet — dragging the message itself uses its text, which works across most Outlo
 versions.)
 
 > **On macOS.** Dragging works from some apps (e.g. **Apple Mail**) — drop the
-> message onto the panel and the preview appears. Other apps (notably **Outlook**)
-> expose the drag in a format the panel can't read, so use **copy-paste** instead:
-> copy the email (⌘C), **click the panel once** (not the text box), then **paste
-> (⌘V)**. Pasting a copied email directly in the composer also works when the
-> message carries its sender/subject header. For an email open in **Outlook Web**,
-> you can instead just ask the agent to "save this page to my X knowledge base."
-> If a drop or paste can't be read, a small banner shows the data types it saw —
-> useful for reporting an unsupported source. Drag-and-drop is the quick path on
-> Windows.
+> message onto the panel and the preview appears. **Outlook** is stubborn: it
+> doesn't reliably put a message on the clipboard (so ⌘C/⌘V often does nothing)
+> and its drag uses a format the panel can't read. The **reliable path for any
+> Mac mail app is a `.eml` file**: drag the message from Outlook (or Apple Mail)
+> **onto your Desktop/Finder** to create a `.eml`, then **drop that file onto the
+> panel** — it's parsed into subject/sender/date/body and shown in the preview.
+> (You can also copy an email's *open body* text and paste it after clicking the
+> panel.) For an email open in **Outlook Web**, just ask the agent to "save this
+> page to my X knowledge base." If a drop/paste can't be read, a small banner
+> shows the data types it saw. Drag-and-drop of the message itself is the quick
+> path on Windows.
 
 **Index a local folder.** In **Workspace → Knowledge**, **drag a folder from
 Finder/Explorer onto the drop box**. Its files and subfolders (text, Markdown, PDF,

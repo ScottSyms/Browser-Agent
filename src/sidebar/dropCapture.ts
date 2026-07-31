@@ -10,7 +10,8 @@
 // synchronous — no awaits between the event and the last `getData`.
 
 import { classifyUpload } from '../shared/uploadFile';
-import { emailFileName, emailMarkdown, looksLikeEmail, parseDraggedEmail } from '../shared/emailDrop';
+import { emailFileName, emailMarkdown, looksLikeEmail, parseDraggedEmail, type ParsedEmail } from '../shared/emailDrop';
+import { parseEml } from '../shared/emlParse';
 
 /** Parsed email fields shown on the "confirm what you caught" preview card. */
 export interface EmailPreview {
@@ -52,10 +53,20 @@ function safeGetData(dt: DataTransfer, type: string): string {
   }
 }
 
+/** Build a queued item from parsed email fields (synthetic Markdown file + preview). */
+function emailItem(parsed: ParsedEmail): DroppedItem {
+  const file = new File([emailMarkdown(parsed)], emailFileName(parsed), { type: 'text/markdown' });
+  return { file, email: { subject: parsed.subject, from: parsed.from, date: parsed.date, snippet: parsed.snippet } };
+}
+
+function isEmlFile(f: File): boolean {
+  return /\.eml$/i.test(f.name) || f.type === 'message/rfc822';
+}
+
 /**
- * Extract droppable items from a DataTransfer. Prefers real supported files;
- * if none, falls back to capturing a dragged email as a synthetic Markdown file.
- * Returns [] when there's nothing we can ingest.
+ * Synchronous capture: supported files, else a dragged/pasted email's text.
+ * Used where an async read isn't wanted (the composer paste). Does NOT read
+ * `.eml` file contents — use `captureDropFull` for that.
  */
 export function captureDrop(dt: DataTransfer | null): DroppedItem[] {
   if (!dt) return [];
@@ -70,11 +81,40 @@ export function captureDrop(dt: DataTransfer | null): DroppedItem[] {
 
   const parsed = parseDraggedEmail(html, plain);
   if (!parsed.body.trim()) return [];
+  return [emailItem(parsed)];
+}
 
-  const file = new File([emailMarkdown(parsed)], emailFileName(parsed), { type: 'text/markdown' });
-  return [
-    { file, email: { subject: parsed.subject, from: parsed.from, date: parsed.date, snippet: parsed.snippet } },
-  ];
+/**
+ * Full capture including `.eml` files (parsed via RFC-822) — the reliable way to
+ * bring an Outlook/Apple Mail message in on macOS (drag it to the Finder to make
+ * a `.eml`, then drop that here). Async because reading a file's text is async;
+ * every DataTransfer read still happens synchronously before the first await, as
+ * the transfer is only valid during the event.
+ */
+export async function captureDropFull(dt: DataTransfer | null): Promise<DroppedItem[]> {
+  if (!dt) return [];
+  const allFiles = Array.from(dt.files ?? []);
+  const html = safeGetData(dt, 'text/html');
+  const plain = safeGetData(dt, 'text/plain');
+
+  const items: DroppedItem[] = allFiles
+    .filter((f) => classifyUpload(f.name, f.type))
+    .map((file) => ({ file }));
+  for (const f of allFiles.filter(isEmlFile)) {
+    try {
+      const parsed = parseEml(await f.text());
+      if (parsed.body.trim() || parsed.subject) items.push(emailItem(parsed));
+    } catch {
+      // Unreadable .eml — skip it rather than failing the whole drop.
+    }
+  }
+  if (items.length) return items;
+
+  if (html || plain) {
+    const parsed = parseDraggedEmail(html, plain);
+    if (parsed.body.trim()) return [emailItem(parsed)];
+  }
+  return [];
 }
 
 /** Wrap plain picked files (from a file input) as DroppedItems, dropping unsupported ones. */
