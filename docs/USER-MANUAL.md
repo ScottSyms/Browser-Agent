@@ -385,6 +385,16 @@ knowledge base for …". **Manage** them under **Workspace → Knowledge**
 > (no network) — see [Embeddings](#settings--advanced) to switch to an external
 > endpoint, and [Privacy](#8-privacy-and-security).
 
+**Drag in files or an email.** Drop a file (PDF, Word, PowerPoint, Excel, text)
+**anywhere on the side panel** — a full-panel "Drop to add to a knowledge base"
+overlay appears — or onto the drop box on the Knowledge page. You can also **drag
+an email straight out of desktop Outlook**: the extension reads the message text
+(subject, sender, date, body) and shows a **preview card so you can confirm what
+it captured** before adding it. Pick or name a knowledge base and it's embedded
+on your device like any other document. (Large binary `.msg` files aren't parsed
+yet — dragging the message itself uses its text, which works across most Outlook
+versions.)
+
 **Index a local folder.** In **Workspace → Knowledge**, **drag a folder from
 Finder/Explorer onto the drop box**. Its files and subfolders (text, Markdown, PDF,
 Word/PowerPoint/Excel) are read, embedded **on your device**, and made searchable.

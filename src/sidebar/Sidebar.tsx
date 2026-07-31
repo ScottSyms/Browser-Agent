@@ -20,6 +20,7 @@ import type {
   ToolActivity,
 } from '../shared/types';
 import { ChatPanel } from './ChatPanel';
+import { captureDrop, dragHasContent, type DroppedItem } from './dropCapture';
 import { ConversationsScreen } from './ConversationsScreen';
 import { OnboardingScreen } from './OnboardingScreen';
 import { ProjectSwitcher } from './ProjectSwitcher';
@@ -116,6 +117,14 @@ function friendlyError(message: string, t: (k: string) => string): string {
 
 export function Sidebar() {
   const portRef = useRef<chrome.runtime.Port | null>(null);
+  // Panel-wide drag overlay: drop files or an email anywhere on the panel to add
+  // it to a knowledge base. `dragDepth` counts enter/leave across child elements
+  // (so the overlay doesn't flicker); `internalDrag` suppresses it for drags that
+  // start inside the panel (e.g. selecting text in the composer).
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const internalDrag = useRef(false);
+  const [pendingDrop, setPendingDrop] = useState<DroppedItem[] | null>(null);
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
   const [activities, setActivities] = useState<ToolActivity[]>([]);
@@ -284,8 +293,60 @@ export function Sidebar() {
 
   const toggleLearnMode = () => send({ type: learnRecording ? 'stop_learn_mode' : 'start_learn_mode' });
 
+  // --- Panel-wide drop overlay (drag files / an email anywhere to add to a KB) ---
+  const onPanelDragEnter = (e: DragEvent) => {
+    if (internalDrag.current || !dragHasContent(e.dataTransfer?.types)) return;
+    dragDepth.current += 1;
+    setDragging(true);
+  };
+  const onPanelDragOver = (e: DragEvent) => {
+    // preventDefault is required for `drop` to fire, and also stops a child
+    // (e.g. the contenteditable composer) from accepting the drop itself.
+    if (!internalDrag.current && dragHasContent(e.dataTransfer?.types)) e.preventDefault();
+  };
+  const onPanelDragLeave = () => {
+    if (internalDrag.current) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+  const onPanelDrop = (e: DragEvent) => {
+    const wasActive = dragging;
+    dragDepth.current = 0;
+    setDragging(false);
+    if (internalDrag.current) {
+      internalDrag.current = false;
+      return;
+    }
+    const items = captureDrop(e.dataTransfer ?? null);
+    if (wasActive || items.length) e.preventDefault();
+    if (items.length) setPendingDrop(items);
+  };
+
   return (
-    <div class="sidebar">
+    <div
+      class="sidebar"
+      onDragStart={() => {
+        internalDrag.current = true;
+      }}
+      onDragEnd={() => {
+        internalDrag.current = false;
+        dragDepth.current = 0;
+        setDragging(false);
+      }}
+      onDragEnter={onPanelDragEnter}
+      onDragOver={onPanelDragOver}
+      onDragLeave={onPanelDragLeave}
+      onDrop={onPanelDrop}
+    >
+      {dragging && (
+        <div class="drop-overlay">
+          <div class="drop-overlay-card">
+            <span class="drop-overlay-icon">📎</span>
+            <span class="drop-overlay-title">{t('repos.dropOverlay.title')}</span>
+            <span class="drop-overlay-note">{t('repos.dropOverlay.note')}</span>
+          </div>
+        </div>
+      )}
       <header class="header">
         <div class="brand">
           <span class="title" title={`CANChat Agent · build ${__APP_VERSION__}`}>CANChat Agent</span>
@@ -414,6 +475,8 @@ export function Sidebar() {
         canDistill={canDistill}
         restoreDraft={restoreDraft}
         onRestoreConsumed={() => setRestoreDraft(null)}
+        droppedItems={pendingDrop}
+        onDroppedItemsConsumed={() => setPendingDrop(null)}
         send={send}
         disabled={configured === false}
       />
