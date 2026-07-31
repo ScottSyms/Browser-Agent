@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AddFileResult, RepoInfo } from '../shared/messages';
 import { UPLOAD_ACCEPT } from '../shared/uploadFile';
-import { captureDrop, itemsFromFiles, type DroppedItem } from './dropCapture';
+import { captureDropFull, itemsFromFiles, type DroppedItem } from './dropCapture';
 import { useT } from './i18n';
 import { uploadFilesToRepo } from './repoUploadClient';
 
@@ -123,18 +123,18 @@ export function RepoUpload({
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          const items = captureDrop(e.dataTransfer);
-          if (items.length) addToQueue(items);
-          else setError(t('repos.upload.nothing'));
+          void captureDropFull(e.dataTransfer).then((items) => {
+            if (items.length) addToQueue(items);
+            else setError(t('repos.upload.nothing'));
+          });
         }}
         tabIndex={0}
         onPaste={(e) => {
           // Paste a copied email (or file) directly onto the drop box.
-          const items = captureDrop(e.clipboardData);
-          if (items.length) {
-            e.preventDefault();
-            addToQueue(items);
-          }
+          e.preventDefault();
+          void captureDropFull(e.clipboardData).then((items) => {
+            if (items.length) addToQueue(items);
+          });
         }}
         onClick={() => inputRef.current?.click()}
       >

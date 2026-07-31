@@ -20,7 +20,7 @@ import type {
   ToolActivity,
 } from '../shared/types';
 import { ChatPanel } from './ChatPanel';
-import { captureDrop, describeTypes, dragHasContent, type DroppedItem } from './dropCapture';
+import { captureDropFull, describeTypes, dragHasContent, type DroppedItem } from './dropCapture';
 import { ConversationsScreen } from './ConversationsScreen';
 import { OnboardingScreen } from './OnboardingScreen';
 import { ProjectSwitcher } from './ProjectSwitcher';
@@ -310,13 +310,12 @@ export function Sidebar() {
       // Focus isn't in the composer, so a paste here is a deliberate "add this" —
       // capture anything readable (email HTML/text or files), not just a strict
       // email. This is the reliable Outlook path on macOS: click the panel, ⌘V.
-      const items = captureDrop(cd);
-      if (items.length) {
-        e.preventDefault();
-        setPendingDrop(items);
-      } else {
-        setDropNotice(describeTypes(cd));
-      }
+      const diag = describeTypes(cd);
+      e.preventDefault();
+      void captureDropFull(cd).then((items) => {
+        if (items.length) setPendingDrop(items);
+        else setDropNotice(diag);
+      });
     };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
@@ -346,10 +345,13 @@ export function Sidebar() {
       internalDrag.current = false;
       return;
     }
-    const items = captureDrop(e.dataTransfer ?? null);
-    if (wasActive || items.length) e.preventDefault();
-    if (items.length) setPendingDrop(items);
-    else if (wasActive) setDropNotice(describeTypes(e.dataTransfer ?? null));
+    const dt = e.dataTransfer ?? null;
+    const diag = describeTypes(dt);
+    e.preventDefault(); // the panel owns drops while the overlay is active
+    void captureDropFull(dt).then((items) => {
+      if (items.length) setPendingDrop(items);
+      else if (wasActive) setDropNotice(diag);
+    });
   };
 
   return (
