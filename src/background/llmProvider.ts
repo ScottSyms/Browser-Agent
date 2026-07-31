@@ -184,6 +184,19 @@ function resolve(settings: Settings, kind: 'chat' | 'embedding' | 'transcription
  * no tier at all are conservatively treated as needing this same protection
  * — only an explicit `'local'` tag is exempt.
  */
+/**
+ * True when any message carries image content (an `image_url` content part).
+ * The caller uses this to route an image-bearing model call to the vision
+ * profile: once a snapshot/attachment is in the conversation, EVERY subsequent
+ * request includes it, and a non-vision model rejects the whole request (HTTP
+ * 400), so the call has to go to a model that can accept images. Pure.
+ */
+export function messagesContainImage(msgs: LlmMessage[]): boolean {
+  return msgs.some(
+    (m) => Array.isArray(m.content) && m.content.some((p) => p.type === 'image_url'),
+  );
+}
+
 export function resolveModelForRole(settings: Settings, role: ModelRole): Settings {
   if (role === 'main') return settings;
   const profileId = settings.roleProfiles?.[role];
