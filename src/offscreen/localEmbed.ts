@@ -8,10 +8,20 @@
 // =============================================================================
 
 import { env, pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers';
+import { batchArray } from '../shared/repoChunk';
 import { DEFAULT_LOCAL_EMBED_MODEL } from '../shared/types';
 
 /** Default model: 384-d, ~23 MB int8, strong quality/size tradeoff for RAG. */
 export const DEFAULT_LOCAL_MODEL = DEFAULT_LOCAL_EMBED_MODEL;
+
+/**
+ * Chunks embedded per inference call. The single-threaded WASM runtime holds the
+ * whole batch's activation tensors in memory at once, so feeding a large document
+ * (dozens/hundreds of chunks — common for PDFs and Markdown) in one call exhausts
+ * memory and fails the ingest. Small batches keep each inference bounded;
+ * background indexing isn't latency-sensitive, so the extra calls are fine.
+ */
+const EMBED_BATCH = 8;
 
 // Model weights download once then browser-cache (inference always stays
 // on-device); if files are bundled under web-accessible `models/`, those are
@@ -81,9 +91,19 @@ export async function embedTextsLocal(
 ): Promise<{ vectors: number[][]; model: string }> {
   if (texts.length === 0) return { vectors: [], model };
   const extractor = await getPipeline(model);
-  const out = await extractor(texts, { pooling: 'mean', normalize: true });
-  // `out` is a 2-D Tensor [n, dim]; tolist() gives number[][].
-  const vectors = out.tolist() as number[][];
+  const vectors: number[][] = [];
+  for (const batch of batchArray(texts, EMBED_BATCH)) {
+    // A tokenizer can't embed an empty string — swap in a single space so the
+    // row count stays aligned with the input chunks.
+    const safe = batch.map((t) => (t && t.trim() ? t : ' '));
+    const out = await extractor(safe, { pooling: 'mean', normalize: true });
+    // `out` is a 2-D Tensor [n, dim]; tolist() gives number[][].
+    const rows = out.tolist() as number[][];
+    if (rows.length !== safe.length) {
+      throw new Error(`Local embedder returned ${rows.length} vectors for ${safe.length} inputs.`);
+    }
+    for (const r of rows) vectors.push(r);
+  }
   if (vectors.length !== texts.length) {
     throw new Error(`Local embedder returned ${vectors.length} vectors for ${texts.length} inputs.`);
   }

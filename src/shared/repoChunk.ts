@@ -26,6 +26,19 @@ export function chunkText(text: string): string[] {
 }
 
 /**
+ * Split an array into fixed-size batches (last batch may be smaller). Used to
+ * bound how many chunks the on-device embedder processes per inference call —
+ * feeding a whole large document at once exhausts the single-threaded WASM
+ * runtime's memory and fails the ingest.
+ */
+export function batchArray<T>(items: T[], size: number): T[][] {
+  if (size < 1) return items.length ? [items] : [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
  * Canonicalize a URL for duplicate detection: drop ?query and #hash, lowercase
  * the host, and strip a trailing slash. Falls back to a trimmed string for
  * non-URL inputs.
