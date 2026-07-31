@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AddFileResult, RepoInfo } from '../shared/messages';
 import { UPLOAD_ACCEPT } from '../shared/uploadFile';
+import { captureDrop, itemsFromFiles, type DroppedItem } from './dropCapture';
 import { useT } from './i18n';
 import { uploadFilesToRepo } from './repoUploadClient';
 
@@ -21,21 +22,22 @@ export interface UploadSummary {
 }
 
 export function RepoUpload({
-  initialFiles,
+  initialItems,
   onDone,
   onClose,
 }: {
-  initialFiles?: File[];
+  /** Pre-queued items (files or a captured email) — opens the card ready to add. */
+  initialItems?: DroppedItem[];
   /** Called after a fully-successful add (the card then closes itself). */
   onDone?: (summary: UploadSummary) => void;
   onClose?: () => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(!!initialFiles?.length);
+  const [open, setOpen] = useState(!!initialItems?.length);
   const [repos, setRepos] = useState<RepoInfo[]>([]);
   const [target, setTarget] = useState(''); // '' = new repo
   const [newName, setNewName] = useState('');
-  const [queue, setQueue] = useState<File[]>(initialFiles ?? []);
+  const [queue, setQueue] = useState<DroppedItem[]>(initialItems ?? []);
   const [results, setResults] = useState<AddFileResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -51,10 +53,9 @@ export function RepoUpload({
       .catch(() => setRepos([]));
   }, [open]);
 
-  const addToQueue = (files: FileList | File[]) => {
-    const next = Array.from(files);
-    if (next.length) {
-      setQueue((q) => [...q, ...next]);
+  const addToQueue = (items: DroppedItem[]) => {
+    if (items.length) {
+      setQueue((q) => [...q, ...items]);
       setResults(null);
       setError(null);
     }
@@ -70,7 +71,7 @@ export function RepoUpload({
     setBusy(true);
     setError(null);
     try {
-      const res = await uploadFilesToRepo(repo, queue);
+      const res = await uploadFilesToRepo(repo, queue.map((q) => q.file));
       setQueue([]);
       setNewName('');
       const added = res.filter((r) => r.ok);
@@ -112,7 +113,8 @@ export function RepoUpload({
       <div
         class={`repo-drop${dragOver ? ' drag-over' : ''}`}
         onDragOver={(e) => {
-          if (e.dataTransfer?.types?.includes('Files')) {
+          const types = e.dataTransfer?.types;
+          if (types?.includes('Files') || types?.includes('text/html')) {
             e.preventDefault();
             setDragOver(true);
           }
@@ -121,7 +123,9 @@ export function RepoUpload({
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          if (e.dataTransfer?.files?.length) addToQueue(e.dataTransfer.files);
+          const items = captureDrop(e.dataTransfer);
+          if (items.length) addToQueue(items);
+          else setError(t('repos.upload.nothing'));
         }}
         onClick={() => inputRef.current?.click()}
       >
@@ -135,7 +139,7 @@ export function RepoUpload({
           style="display:none"
           onChange={(e) => {
             const fl = (e.target as HTMLInputElement).files;
-            if (fl) addToQueue(fl);
+            if (fl) addToQueue(itemsFromFiles(Array.from(fl)));
           }}
         />
       </div>
@@ -165,12 +169,30 @@ export function RepoUpload({
 
       {(queue.length > 0 || results) && (
         <ul class="repo-files">
-          {queue.map((f, i) => (
-            <li key={`q${i}`} class="repo-file">
-              <span class="repo-file-name">{f.name}</span>
-              <span class="repo-file-status">{busy ? t('repos.upload.working') : t('repos.upload.queued')}</span>
-            </li>
-          ))}
+          {queue.map((item, i) =>
+            item.email ? (
+              <li key={`q${i}`} class="repo-file repo-file-email">
+                <div class="repo-email-head">
+                  <span class="repo-email-badge">✉️ {t('repos.upload.emailBadge')}</span>
+                  <span class="repo-file-status">{busy ? t('repos.upload.working') : t('repos.upload.queued')}</span>
+                </div>
+                <span class="repo-email-subject">{item.email.subject || item.file.name}</span>
+                {(item.email.from || item.email.date) && (
+                  <span class="repo-email-meta">
+                    {item.email.from ? item.email.from : ''}
+                    {item.email.from && item.email.date ? ' · ' : ''}
+                    {item.email.date ? item.email.date : ''}
+                  </span>
+                )}
+                {item.email.snippet && <span class="repo-email-snippet">{item.email.snippet}</span>}
+              </li>
+            ) : (
+              <li key={`q${i}`} class="repo-file">
+                <span class="repo-file-name">{item.file.name}</span>
+                <span class="repo-file-status">{busy ? t('repos.upload.working') : t('repos.upload.queued')}</span>
+              </li>
+            ),
+          )}
           {results?.map((r, i) => (
             <li key={`r${i}`} class={`repo-file${r.ok ? '' : ' is-skip'}`}>
               <span class="repo-file-name">{r.name}</span>

@@ -12,7 +12,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { CapabilityRegistryEntry } from '../shared/capabilities';
 import type { SidebarCommand } from '../shared/messages';
 import type { AgentStatus, ChatMessageView, DataExport, FileArtifact, SiteEntry, Skill } from '../shared/types';
-import { classifyUpload, UPLOAD_ACCEPT } from '../shared/uploadFile';
+import { UPLOAD_ACCEPT } from '../shared/uploadFile';
+import { itemsFromFiles, type DroppedItem } from './dropCapture';
 import { capabilityBookmarkCandidates, dedupeBookmarkCandidates, filterBookmarkMentions, flattenBookmarkTree } from './bookmarkMentions';
 import { DOCS_URL } from './links';
 import { RepoUpload } from './RepoUpload';
@@ -145,6 +146,9 @@ interface Props {
   /** Prompt text to drop into the composer after an undo (null = nothing pending). */
   restoreDraft: string | null;
   onRestoreConsumed: () => void;
+  /** Items captured by the panel-wide drop overlay → open the uploader with them. */
+  droppedItems: DroppedItem[] | null;
+  onDroppedItemsConsumed: () => void;
   send: (command: SidebarCommand) => void;
   disabled: boolean;
 }
@@ -175,6 +179,8 @@ export function ChatPanel({
   canDistill,
   restoreDraft,
   onRestoreConsumed,
+  droppedItems,
+  onDroppedItemsConsumed,
   send,
   disabled,
 }: Props) {
@@ -189,8 +195,8 @@ export function ChatPanel({
   const [hasTranscription, setHasTranscription] = useState(false);
   const [micState, setMicState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
   const [micError, setMicError] = useState<string | null>(null);
-  // Files dropped on / attached to the chat → the shared uploader opens with them.
-  const [dropFiles, setDropFiles] = useState<File[] | null>(null);
+  // Files/emails dropped on the panel or attached via 📎 → the shared uploader opens with them.
+  const [dropItems, setDropItems] = useState<DroppedItem[] | null>(null);
   const [uploadBanner, setUploadBanner] = useState<string | null>(null);
   const [rememberSession, setRememberSession] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
@@ -524,23 +530,25 @@ export function ChatPanel({
     setMicState('recording');
   };
 
-  // Queue picked/dropped files for the knowledge-base uploader.
+  // Files picked via 📎 → open the knowledge-base uploader pre-loaded with them.
+  // (Drag-and-drop is handled by the panel-wide overlay in Sidebar, which feeds
+  //  `droppedItems`; the effect below consumes it.)
   const queueFiles = (files: File[]) => {
-    const supported = files.filter((f) => classifyUpload(f.name, f.type));
-    if (supported.length === 0) return;
-    setDropFiles(supported);
+    const items = itemsFromFiles(files);
+    if (items.length) setDropItems(items);
   };
 
-  // Files dropped on the chat → open the uploader pre-loaded with them.
-  const onDrop = (e: DragEvent) => {
-    const files = Array.from(e.dataTransfer?.files ?? []);
-    if (!files.some((f) => classifyUpload(f.name, f.type))) return;
-    e.preventDefault();
-    queueFiles(files);
-  };
+  // Overlay-captured drop (files or an email) → open the uploader with it.
+  useEffect(() => {
+    if (droppedItems && droppedItems.length) {
+      setDropItems(droppedItems);
+      onDroppedItemsConsumed();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [droppedItems]);
 
   return (
-    <div class="chat" onDragOver={(e) => e.dataTransfer?.types?.includes('Files') && e.preventDefault()} onDrop={onDrop}>
+    <div class="chat">
       <div class="chat-messages" ref={listRef}>
         {messages.length === 0 && (
           <div class="chat-empty">
@@ -664,11 +672,11 @@ export function ChatPanel({
 
       <div class="chat-input-row">
         {uploadBanner && <UploadBanner text={uploadBanner} onDismiss={() => setUploadBanner(null)} />}
-        {dropFiles && (
+        {dropItems && (
           <div class="repo-upload-card">
             <RepoUpload
-              initialFiles={dropFiles}
-              onClose={() => setDropFiles(null)}
+              initialItems={dropItems}
+              onClose={() => setDropItems(null)}
               onDone={(s) => setUploadBanner(tr('repos.upload.done', { n: String(s.added), repo: s.repo }))}
             />
           </div>
