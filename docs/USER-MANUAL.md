@@ -7,9 +7,9 @@
 **Audience:** First-time users with little or no AI experience, plus administrators and reviewers.
 
 Screenshots in this manual are captured automatically by the test harness
-(`tests/e2e/walkthrough.spec.ts` and `tests/e2e/manual.spec.ts`) against a
-deterministic offline mock model, so they show the real interface without
-exposing any private data.
+(`tests/e2e/walkthrough.spec.ts`, `tests/e2e/manual.spec.ts`, and
+`tests/e2e/governance-screenshots.spec.ts`) against a deterministic offline mock
+model, so they show the real interface without exposing any private data.
 
 ---
 
@@ -71,6 +71,12 @@ or sends data.
   captions; produce downloadable CSV/JSON tables and Word documents.
 - **Voice prompts**, **page snapshots** for image-aware models, conversation
   **history with labels and search**, and one-file **backup/restore**.
+- **Deep research jobs** — exhaustive, hours-long background research that
+  survives the browser suspending the extension and ends in a cited report.
+- **Encryption vault** — optional passphrase-based encryption at rest for your
+  API key, conversations, and knowledge bases.
+- **Audit log** — a local, digests-only record of every policy decision,
+  approval, and tool call.
 
 ### Intended audience
 
@@ -488,6 +494,36 @@ percentage to reset), **Save conversation as HTML**, **Undo last exchange**,
 and **Learn mode**. Language (Auto / English / Français) is in
 **Workspace → Settings** and switches the whole interface immediately.
 
+### 5.14 Deep research jobs (long-running background work)
+
+A normal request runs while you watch and finishes in one sitting. A **deep
+research job** is different: it's a large, exhaustive task that can run for
+**minutes to hours**, in the background, even while the browser has suspended
+the extension to save memory. You start one just by asking — e.g. *"Do deep,
+exhaustive research on X and write me a cited report"* — and the agent kicks off
+a job rather than trying to answer in a single turn.
+
+Once started, the job:
+
+- **Works through a growing list of sources.** It searches, opens each source in
+  a **background tab** (never stealing your focus), reads it, notes what it
+  found, and adds any promising follow-up leads — up to sensible caps on how many
+  sources and how deep it will go.
+- **Survives suspension.** The browser evicts idle extensions after ~30 seconds;
+  the job checkpoints its progress and uses a wake-up alarm to resume where it
+  left off, so it keeps going across suspensions with no window open.
+- **Ends with a cited report**, saved to the **Products** page (see §6) as a
+  Markdown document, and a completion notification.
+
+You watch and steer it from the **Jobs** page in the Workspace (see §6): each job
+shows its status, how many sources are processed vs. pending, a percentage and
+elapsed time, and buttons to **Pause**, **Resume**, **Cancel**, **View report**,
+or delete it. Research jobs are **read-only** — they read pages and write a local
+report — so, like any unattended run, they never take a state-changing action
+without you; they simply gather and synthesize.
+
+![Jobs console: running, paused, and finished research jobs, with a job's cited report open](user-guide/screenshots/06-jobs-console.png)
+
 ---
 
 ## 6. Settings reference
@@ -606,14 +642,66 @@ playbook library URL, and Backup & Restore):
 
 The Workspace is the full-tab console the **Settings** gear opens: the same
 conversation plus a dedicated page per management area — **Chat**,
-**Projects**, **Knowledge**, **Memory**, **Automations**, **Products**,
-**Skills**, **Tools**, **Models**, and **Settings** (language, playbook
-library, Backup & Restore) — alongside result viewers for data tables and
-images. **Models** carries the connection card, the full **Advanced**
-section, and **Model profiles & routing** (see next) for routing background
-work to a different model. Changes made in the workspace and the side panel
-share the same on-device storage, so either surface always reflects the
-latest state.
+**Projects**, **Knowledge**, **Memory**, **Automations**, **Jobs**,
+**Products**, **Audit**, **Skills**, **Tools**, **Models**, and **Settings**
+(language, playbook library, Backup & Restore) — alongside result viewers for
+data tables and images. **Models** carries the connection card, the
+**Encryption vault** (see below), the full **Advanced** section, and **Model
+profiles & routing** (see next) for routing background work to a different
+model. **Jobs** tracks long-running research jobs (§5.14) and **Audit** is a
+read-only record of what the agent did (see below). Changes made in the
+workspace and the side panel share the same on-device storage, so either
+surface always reflects the latest state.
+
+### Encryption vault (encrypt your secrets at rest)
+
+By default your API key and other data sit in the browser's local storage as
+ordinary text — protected by your operating-system account, but not encrypted.
+The **Encryption vault**, on the **Models** page, lets you turn on
+**encryption at rest** with a passphrase you choose:
+
+- **Enable encryption.** Pick a passphrase (at least 8 characters) and confirm
+  it. From then on, secrets are encrypted with a key derived from that
+  passphrase; your API key, saved conversations, knowledge-base text, and
+  backup files are stored as ciphertext, not plain text.
+- **There is no backdoor.** The passphrase is **never stored** anywhere — not
+  on your device, not with the authors, nowhere. That's what makes the
+  encryption meaningful, and it also means **if you forget it, the encrypted
+  data cannot be recovered.** Choose something you won't lose.
+- **Lock / unlock.** When locked (e.g. after enabling it, or when you click
+  **Lock now**), the agent can't read your secrets and pauses until you
+  **Unlock** by entering the passphrase for the session. Unlocking here also
+  unlocks it for the background agent.
+- **Change passphrase** re-wraps the key under a new passphrase without
+  re-encrypting everything.
+- **Erase vault** (type `erase` to confirm) cryptographically destroys the
+  key — any data that was only stored encrypted becomes permanently
+  unreadable. To avoid locking you out of your own provider, your API key is
+  first read back and re-saved in plain text, so the agent keeps working; only
+  the *encryption* is removed.
+
+The vault is **entirely optional**. Leave it off and everything behaves as it
+always has; turn it on when you want on-device secrets protected even from
+someone who can read the browser's storage.
+
+![Encryption vault: choose a passphrase to encrypt secrets at rest, with the no-backdoor warning](user-guide/screenshots/08-encryption-vault.png)
+
+### Audit (a record of what the agent did)
+
+The **Audit** page is a read-only, append-only log of every **policy decision,
+approval, and tool call** the agent makes, grouped one log per conversation.
+For each event it records the time, the event type, the tool, the page origin,
+the policy decision (and rule), the result (success / error / denied), a
+compact input→output fingerprint, and how long it took; a 🕒 marks anything a
+scheduled or triggered run did unattended.
+
+Crucially, the audit log stores **digests only — never the actual page content,
+message text, or credentials.** It's there so you (or a reviewer) can verify
+*what happened and under which rule* after the fact, without the log itself
+becoming a second copy of your sensitive data. It's kept locally like
+everything else.
+
+![Audit page: one conversation's log of policy decisions, approvals, and tool calls](user-guide/screenshots/07-audit-log.png)
 
 ### Model profiles and routing
 
@@ -762,6 +850,13 @@ authors or any third party beyond the model endpoint(s) *you* configure.
 | Skills, app playbooks, known sites (hints), memory, language | `chrome.storage.local` |
 | Conversation history (and labels) | `chrome.storage.local` |
 | Knowledge bases (page text + search vectors) | OPFS (browser's private on-device file storage) |
+| Audit log (digests of what the agent did) | OPFS, digests only — no content or credentials |
+
+By default this data is stored as ordinary text, guarded by your OS account. If
+you enable the **Encryption vault** (§6), the sensitive parts — your API key,
+saved conversations, knowledge-base text, and backup files — are encrypted at
+rest with a key derived from your passphrase, so they're unreadable to anyone
+who can see the browser's raw storage without that passphrase.
 
 ### What is transmitted, and to whom
 
@@ -781,7 +876,9 @@ authors or any third party beyond the model endpoint(s) *you* configure.
 The key is stored locally, shown as dots in the UI, and sent **only** to the
 endpoint(s) you set. Backups **exclude conversations by default** and let you
 **omit the API key**; if you include it, the file holds the key in plain text —
-store it securely.
+store it securely. Turn on the **Encryption vault** (§6) and the key is
+encrypted at rest on your device (and inside backup files), so it is no longer
+sitting in storage as readable text.
 
 ### Browser permissions and the approval model
 
@@ -802,6 +899,11 @@ store it securely.
 4. When backing up, leave **Include API key** unchecked unless you need it, and
    store the file securely.
 5. Prefer **Allow this site** over **Allow all sites** when granting access.
+6. For on-device protection of your key and history, enable the **Encryption
+   vault** (§6) — and record the passphrase somewhere safe, since there is no
+   way to recover encrypted data without it.
+7. Review the **Audit** page (§6) if you want to confirm exactly what an
+   unattended or long-running job did, and under which policy rule.
 
 ---
 
@@ -1093,6 +1195,30 @@ state-changing step.
 - Backup/Restore of settings, hints, skills, memory, language, knowledge bases;
   optional key/conversations ✅ (`BackupRestoreSection.tsx`)
 
+**Agent platform & governance**
+- **Scheduled tasks** — run a prompt later or on a cadence (once/daily/weekly/
+  every-N-minutes), with inline edit/reschedule, pause/resume, run history, and
+  a completion notification ✅ (`scheduler.ts`, `AutomationsPage.tsx`)
+- **Event triggers** — run a skill unattended when you open a matching site,
+  with cooldown ✅ (`eventTriggers.ts`, `automation.ts`)
+- **Deep research jobs** — durable, alarm-driven background research that
+  survives service-worker eviction, checkpoints its frontier, and ends in a
+  cited report saved to Products; Jobs console with pause/resume/cancel/progress
+  ✅ (`jobs.ts`, `jobStore.ts`, `jobEngine.ts`, `researchJob.ts`, `JobsPage.tsx`)
+- **Products** — files unattended runs generate (Word/PowerPoint/reports),
+  OPFS-backed, with download/delete and backup round-trip ✅ (`ProductsPage.tsx`,
+  `productStore.ts`)
+- **Policy engine** — deny-by-default action-class model behind every approval;
+  unattended runs are read-only ✅ (`policy.ts`)
+- **Audit log** — append-only, digests-only record of every policy decision,
+  approval, and tool call, one log per conversation ✅ (`audit.ts`,
+  `auditLog.ts`, `AuditPage.tsx`)
+- **Encryption vault** — optional passphrase-derived key (PBKDF2→AES-GCM) that
+  wraps a per-install data key encrypting the API key, conversations,
+  knowledge-base text, settings secrets, and backups at rest; lock/unlock,
+  change-passphrase, and cryptographic erase; no stored passphrase, no backdoor
+  ✅ (`crypto.ts`, `vault.ts`, `VaultSection.tsx`)
+
 **Providers**
 - Any OpenAI-compatible endpoint; standard (Bearer) and Azure (`api-key` +
   `api-version`) modes; separate endpoints/keys for chat, embeddings,
@@ -1132,9 +1258,14 @@ approval each time.** Memory tools appear only when Memory is enabled.
 `run_subtasks` (isolated mini-loops for multi-page research).
 
 **External & in-page tools:** `sharepoint_search`, `list_mcp_tools`,
-`call_mcp_tool` 🔒, `list_webmcp_tools`, `call_webmcp_tool` 🔒.
+`call_mcp_tool` 🔒, `list_webmcp_tools`, `call_webmcp_tool` 🔒, `draft_email` 🔒.
 
-**Producing output:** `export_data` (CSV/JSON), `create_word_document` (.docx).
+**Producing output:** `export_data` (CSV/JSON), `create_word_document` (.docx),
+`create_powerpoint` (.pptx), `create_image`, `create_file`.
+
+**Automations & jobs:** `schedule_task` 🔒, `list_scheduled_tasks`,
+`cancel_scheduled_task` 🔒, `start_research_job` 🔒 (starts a durable background
+research job — see §5.14).
 
 **Agent meta:** `set_plan`, `update_plan`, `record_finding`, `use_skill`,
 `save_app_playbook` 🔒, `save_as_skill` 🔒.
