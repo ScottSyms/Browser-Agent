@@ -10,7 +10,7 @@
 // synchronous — no awaits between the event and the last `getData`.
 
 import { classifyUpload } from '../shared/uploadFile';
-import { emailFileName, emailMarkdown, parseDraggedEmail } from '../shared/emailDrop';
+import { emailFileName, emailMarkdown, looksLikeEmail, parseDraggedEmail } from '../shared/emailDrop';
 
 /** Parsed email fields shown on the "confirm what you caught" preview card. */
 export interface EmailPreview {
@@ -68,4 +68,15 @@ export function captureDrop(dt: DataTransfer | null): DroppedItem[] {
 /** Wrap plain picked files (from a file input) as DroppedItems, dropping unsupported ones. */
 export function itemsFromFiles(files: File[]): DroppedItem[] {
   return files.filter((f) => classifyUpload(f.name, f.type)).map((file) => ({ file }));
+}
+
+/**
+ * True when a paste's clipboard clearly holds an *email* (has HTML with a
+ * From/Date header). Used so pasting a copied Outlook message into the composer
+ * is recognised as "add this email", while ordinary rich-text pastes are left
+ * to insert normally. (A `ClipboardEvent.clipboardData` is a DataTransfer.)
+ */
+export function clipboardIsEmail(cd: DataTransfer | null): boolean {
+  if (!cd || !Array.from(cd.types).includes('text/html')) return false;
+  return looksLikeEmail(safeGetData(cd, 'text/html'), safeGetData(cd, 'text/plain'));
 }

@@ -94,6 +94,17 @@ export function parseDraggedEmail(html: string, plain: string): ParsedEmail {
   return { subject, from, date, body, snippet: makeSnippet(body) };
 }
 
+/**
+ * A strong signal that clipboard/drag text is an *email* rather than arbitrary
+ * rich text: a copied Outlook message carries a From/Sent (or Date) header line.
+ * Used to decide whether to treat a paste as "add this email" vs. a normal paste
+ * into the composer, so ordinary rich-text pastes are never hijacked.
+ */
+export function looksLikeEmail(html: string, plain: string): boolean {
+  const p = parseDraggedEmail(html, plain);
+  return Boolean(p.from || p.date);
+}
+
 /** A safe, readable filename derived from the subject (no path/OS-illegal chars). */
 export function emailFileName(p: ParsedEmail): string {
   const base =
