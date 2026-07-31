@@ -20,7 +20,7 @@ import type {
   ToolActivity,
 } from '../shared/types';
 import { ChatPanel } from './ChatPanel';
-import { captureDrop, dragHasContent, type DroppedItem } from './dropCapture';
+import { captureDrop, clipboardIsEmail, dragHasContent, type DroppedItem } from './dropCapture';
 import { ConversationsScreen } from './ConversationsScreen';
 import { OnboardingScreen } from './OnboardingScreen';
 import { ProjectSwitcher } from './ProjectSwitcher';
@@ -292,6 +292,26 @@ export function Sidebar() {
   };
 
   const toggleLearnMode = () => send({ type: learnRecording ? 'stop_learn_mode' : 'start_learn_mode' });
+
+  // Paste an email onto the panel (the reliable path on macOS, where dragging
+  // into a side panel is blocked). Fires when focus is NOT in an editable field —
+  // the composer handles its own email pastes; here we cover "click the panel,
+  // then ⌘/Ctrl+V". Files pasted from the OS work too.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      const cd = e.clipboardData;
+      if (!cd || (!clipboardIsEmail(cd) && !cd.files?.length)) return;
+      const items = captureDrop(cd);
+      if (items.length) {
+        e.preventDefault();
+        setPendingDrop(items);
+      }
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, []);
 
   // --- Panel-wide drop overlay (drag files / an email anywhere to add to a KB) ---
   const onPanelDragEnter = (e: DragEvent) => {

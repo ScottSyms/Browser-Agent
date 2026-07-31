@@ -127,6 +127,15 @@ export function RepoUpload({
           if (items.length) addToQueue(items);
           else setError(t('repos.upload.nothing'));
         }}
+        tabIndex={0}
+        onPaste={(e) => {
+          // Paste a copied email (or file) directly onto the drop box.
+          const items = captureDrop(e.clipboardData);
+          if (items.length) {
+            e.preventDefault();
+            addToQueue(items);
+          }
+        }}
         onClick={() => inputRef.current?.click()}
       >
         <span class="repo-drop-hint">{t('repos.upload.dropHint')}</span>

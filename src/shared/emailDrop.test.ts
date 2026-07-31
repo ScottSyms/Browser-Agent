@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emailFileName, emailMarkdown, parseDraggedEmail, stripHtml } from './emailDrop';
+import { emailFileName, emailMarkdown, looksLikeEmail, parseDraggedEmail, stripHtml } from './emailDrop';
 
 describe('stripHtml', () => {
   it('drops tags and converts block ends to newlines', () => {
@@ -53,6 +53,19 @@ describe('parseDraggedEmail', () => {
   it('does not treat a long text/plain as a subject', () => {
     const p = parseDraggedEmail('<div>body</div>', 'x'.repeat(250));
     expect(p.subject).toBeUndefined();
+  });
+});
+
+describe('looksLikeEmail', () => {
+  it('is true when a From/Sent header block is present', () => {
+    const html = '<div>From: Alice<br>Sent: Monday<br>Subject: Hi<br><br>body</div>';
+    expect(looksLikeEmail(html, '')).toBe(true);
+  });
+  it('is false for ordinary rich text with no email headers', () => {
+    expect(looksLikeEmail('<p>Just some <b>copied</b> text.</p>', 'Just some copied text.')).toBe(false);
+  });
+  it('is false for empty input', () => {
+    expect(looksLikeEmail('', '')).toBe(false);
   });
 });
 

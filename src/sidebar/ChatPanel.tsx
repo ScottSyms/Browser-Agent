@@ -13,7 +13,7 @@ import type { CapabilityRegistryEntry } from '../shared/capabilities';
 import type { SidebarCommand } from '../shared/messages';
 import type { AgentStatus, ChatMessageView, DataExport, FileArtifact, SiteEntry, Skill } from '../shared/types';
 import { UPLOAD_ACCEPT } from '../shared/uploadFile';
-import { itemsFromFiles, type DroppedItem } from './dropCapture';
+import { captureDrop, clipboardIsEmail, itemsFromFiles, type DroppedItem } from './dropCapture';
 import { capabilityBookmarkCandidates, dedupeBookmarkCandidates, filterBookmarkMentions, flattenBookmarkTree } from './bookmarkMentions';
 import { DOCS_URL } from './links';
 import { RepoUpload } from './RepoUpload';
@@ -762,7 +762,18 @@ export function ChatPanel({
           onKeyUp={() => updateMention()}
           onMouseUp={() => updateMention()}
           onPaste={(e) => {
-            // Plain-text paste only — no foreign formatting in the editor.
+            // A pasted email (copied from Outlook — the reliable path on Mac,
+            // where dragging into a side panel is blocked) opens the uploader
+            // instead of dumping the message text into the composer.
+            if (clipboardIsEmail(e.clipboardData)) {
+              const items = captureDrop(e.clipboardData);
+              if (items.length) {
+                e.preventDefault();
+                setDropItems(items);
+                return;
+              }
+            }
+            // Otherwise plain-text paste only — no foreign formatting in the editor.
             e.preventDefault();
             const pasted = e.clipboardData?.getData('text/plain') ?? '';
             document.execCommand('insertText', false, pasted);

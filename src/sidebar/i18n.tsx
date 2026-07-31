@@ -193,7 +193,7 @@ const EN: Dict = {
   'repos.upload.newRepo': 'New knowledge base…',
   'repos.upload.newName': 'Name',
   'repos.upload.newNamePlaceholder': 'e.g. policies',
-  'repos.upload.dropHint': 'Drop files or an email here, or click to choose',
+  'repos.upload.dropHint': 'Drop or paste (⌘/Ctrl+V) files or an email, or click to choose',
   'repos.upload.types': 'PDF · Word · PowerPoint · Excel · text · email',
   'repos.upload.note':
     'Files are parsed on-device, then chunked and embedded via your model endpoint (each chunk is sent to the embeddings service). Max 20 MB per file.',
@@ -609,7 +609,7 @@ const FR: Dict = {
   'repos.upload.newRepo': 'Nouvelle base de connaissances…',
   'repos.upload.newName': 'Nom',
   'repos.upload.newNamePlaceholder': 'p. ex. politiques',
-  'repos.upload.dropHint': 'Déposez des fichiers ou un courriel ici, ou cliquez pour choisir',
+  'repos.upload.dropHint': 'Déposez ou collez (⌘/Ctrl+V) des fichiers ou un courriel, ou cliquez pour choisir',
   'repos.upload.types': 'PDF · Word · PowerPoint · Excel · texte · courriel',
   'repos.upload.note':
     'Les fichiers sont analysés sur l’appareil, puis segmentés et vectorisés via votre point de terminaison (chaque segment est envoyé au service d’intégration). Max 20 Mo par fichier.',
