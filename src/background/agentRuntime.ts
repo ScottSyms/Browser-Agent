@@ -79,7 +79,7 @@ import * as browser from './browserToolAdapter';
 import type { M365SearchFilters } from '../shared/microsoftSearch';
 import { captureFullPage } from './fullPageCapture';
 import { mcpCallTool, mcpListTools } from './mcpClient';
-import { complete, embedChunks, embedderId, LLM_TIMEOUT_MS, resolveModelForRole, type ContentPart, type LlmMessage, type LlmToolCall } from './llmProvider';
+import { complete, embedChunks, embedderId, LLM_TIMEOUT_MS, messagesContainImage, resolveModelForRole, type ContentPart, type LlmMessage, type LlmToolCall } from './llmProvider';
 import { extractJsonObject, runScopedSubtask, type ScopedSubtaskInput } from './scopedSubtask';
 import { startJob } from './jobEngine';
 import { DEFAULT_RESEARCH_LIMITS } from '../shared/jobs';
@@ -2097,7 +2097,8 @@ export class AgentRuntime {
       await this.compactConversation(settings);
 
       this.setStatus('thinking');
-      const reply = await complete(settings, this.withWorkingState(), tools, this.makeSignal(), this.rateLimitNotice);
+      const msgs = this.withWorkingState();
+      const reply = await complete(this.modelForCall(settings, msgs), msgs, tools, this.makeSignal(), this.rateLimitNotice);
       if (this.aborted(epoch)) return;
 
       if (!reply.tool_calls || reply.tool_calls.length === 0) {
@@ -2299,6 +2300,19 @@ export class AgentRuntime {
     }
   }
 
+  /**
+   * Pick the model for a main-loop call: if the outgoing messages carry an
+   * image and a **vision** profile is configured, route there so a non-vision
+   * main model doesn't 400 on the image. `resolveModelForRole` already falls
+   * back to `settings` when no vision profile is assigned (or it's gated out by
+   * restrict-to-local), so with no profile this is a no-op and behaves exactly
+   * as before.
+   */
+  private modelForCall(settings: Settings, msgs: LlmMessage[]): Settings {
+    if (!messagesContainImage(msgs)) return settings;
+    return resolveModelForRole(settings, 'vision');
+  }
+
   /** Force a final, tools-disabled answer when the budget is exhausted. */
   private async wrapUp(settings: Settings): Promise<void> {
     this.notice('Step budget reached — composing a final answer from what I have.');
@@ -2308,7 +2322,8 @@ export class AgentRuntime {
         'You have reached your step budget — do not call any more tools. Using your findings and what you already know, give the user your best final answer now, clearly noting anything you could not verify.',
     });
     this.setStatus('thinking');
-    const reply = await complete(settings, this.withWorkingState(), undefined, this.makeSignal(), this.rateLimitNotice);
+    const msgs = this.withWorkingState();
+    const reply = await complete(this.modelForCall(settings, msgs), msgs, undefined, this.makeSignal(), this.rateLimitNotice);
     if (this.stopRequested) return;
     const text = reply.content ?? '(no answer)';
     this.conversation.push({ role: 'assistant', content: text });

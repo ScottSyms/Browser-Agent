@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelProfile, Settings } from '../shared/types';
-import { apiVersion, authHeaders, buildUrl, resolveModelForRole, testConnection } from './llmProvider';
+import { apiVersion, authHeaders, buildUrl, messagesContainImage, resolveModelForRole, testConnection, type LlmMessage } from './llmProvider';
 
 const base: Settings = { baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', model: 'gpt' };
 
@@ -161,5 +161,73 @@ describe('resolveModelForRole', () => {
   it('without restrictBackgroundToLocal, a cloud-tagged profile is used normally', () => {
     const settings: Settings = { ...base, modelProfiles: [cloudProfile], roleProfiles: { reflection: 'p2' } };
     expect(resolveModelForRole(settings, 'reflection').model).toBe(cloudProfile.model);
+  });
+});
+
+describe('messagesContainImage', () => {
+  it('is false for plain string-content messages', () => {
+    const msgs: LlmMessage[] = [
+      { role: 'system', content: 'you are a helpful agent' },
+      { role: 'user', content: 'summarize this page' },
+    ];
+    expect(messagesContainImage(msgs)).toBe(false);
+  });
+
+  it('is false when a content array has only text parts', () => {
+    const msgs: LlmMessage[] = [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }];
+    expect(messagesContainImage(msgs)).toBe(false);
+  });
+
+  it('is true when any message carries an image_url part', () => {
+    const msgs: LlmMessage[] = [
+      { role: 'user', content: 'earlier text turn' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'interpret this' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+        ],
+      },
+    ];
+    expect(messagesContainImage(msgs)).toBe(true);
+  });
+
+  it('tolerates null content (assistant tool-call turns)', () => {
+    const msgs: LlmMessage[] = [{ role: 'assistant', content: null }];
+    expect(messagesContainImage(msgs)).toBe(false);
+  });
+});
+
+describe('vision routing (image-bearing calls go to the vision profile)', () => {
+  // Mirrors AgentRuntime.modelForCall: route to the vision profile only when the
+  // outgoing messages carry an image; otherwise the main model is used as-is.
+  const visionProfile: ModelProfile = {
+    id: 'pv',
+    name: 'Image interpretation',
+    baseUrl: 'https://vision.example.com/v1',
+    apiKey: 'sk-vision',
+    model: 'gemini-3-flash',
+    privacyTier: 'cloud',
+    capabilities: { vision: true },
+  };
+  const withVision: Settings = { ...base, modelProfiles: [visionProfile], roleProfiles: { vision: 'pv' } };
+  const modelForCall = (settings: Settings, msgs: LlmMessage[]): Settings =>
+    messagesContainImage(msgs) ? resolveModelForRole(settings, 'vision') : settings;
+
+  const textMsgs: LlmMessage[] = [{ role: 'user', content: 'plain question' }];
+  const imageMsgs: LlmMessage[] = [
+    { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] },
+  ];
+
+  it('keeps the main model for a text-only call', () => {
+    expect(modelForCall(withVision, textMsgs)).toBe(withVision);
+  });
+
+  it('routes an image-bearing call to the vision profile', () => {
+    expect(modelForCall(withVision, imageMsgs).model).toBe('gemini-3-flash');
+  });
+
+  it('with no vision profile, an image-bearing call stays on the main model (unchanged behavior)', () => {
+    expect(modelForCall(base, imageMsgs)).toBe(base);
   });
 });

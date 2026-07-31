@@ -718,7 +718,7 @@ roles:
 | **Utility** | Conversation titles/summaries, the self-check pass on a draft answer, skill creation, compacting old tool output, and improving knowledge-base search queries. |
 | **Reflection** | Learning a behavioral lesson from a task, and extracting/merging durable memory facts. |
 | **Plan** | The scoped research subtasks a multi-step plan spins up. |
-| **Vision** | Reading text out of a page screenshot when normal extraction fails (OCR). |
+| **Vision** | Interpreting images you attach to a chat, reading tab snapshots, and OCR when normal page extraction fails. If your main model can't accept images, assign a vision-capable model here and image requests are routed to it automatically. |
 
 A role with no profile assigned just uses the main model — nothing changes
 until you explicitly assign one. Tag a profile **Local** only if it's
