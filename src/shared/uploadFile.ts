@@ -14,7 +14,7 @@ const OFFICE_EXT = ['docx', 'pptx', 'xlsx'];
 const PDF_EXT = ['pdf'];
 
 /** The `accept` attribute value for the file inputs. */
-export const UPLOAD_ACCEPT = '.pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.csv,.tsv,.log';
+export const UPLOAD_ACCEPT = '.pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.csv,.tsv,.log,.eml';
 
 function extOf(name: string): string {
   const dot = name.lastIndexOf('.');

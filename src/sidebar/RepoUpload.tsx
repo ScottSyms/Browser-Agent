@@ -148,7 +148,7 @@ export function RepoUpload({
           style="display:none"
           onChange={(e) => {
             const fl = (e.target as HTMLInputElement).files;
-            if (fl) addToQueue(itemsFromFiles(Array.from(fl)));
+            if (fl) void itemsFromFiles(Array.from(fl)).then((items) => addToQueue(items));
           }}
         />
       </div>

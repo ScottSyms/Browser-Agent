@@ -395,18 +395,19 @@ on your device like any other document. (Large binary `.msg` files aren't parsed
 yet — dragging the message itself uses its text, which works across most Outlook
 versions.)
 
-> **On macOS.** Dragging works from some apps (e.g. **Apple Mail**) — drop the
-> message onto the panel and the preview appears. **Outlook** is stubborn: it
-> doesn't reliably put a message on the clipboard (so ⌘C/⌘V often does nothing)
-> and its drag uses a format the panel can't read. The **reliable path for any
-> Mac mail app is a `.eml` file**: drag the message from Outlook (or Apple Mail)
-> **onto your Desktop/Finder** to create a `.eml`, then **drop that file onto the
-> panel** — it's parsed into subject/sender/date/body and shown in the preview.
-> (You can also copy an email's *open body* text and paste it after clicking the
-> panel.) For an email open in **Outlook Web**, just ask the agent to "save this
-> page to my X knowledge base." If a drop/paste can't be read, a small banner
-> shows the data types it saw. Drag-and-drop of the message itself is the quick
-> path on Windows.
+> **On macOS.** Dragging a message onto the panel works from **Apple Mail**, but
+> **not from Outlook** — Outlook doesn't perform a browser drag, and its ⌘C
+> doesn't put the message on the clipboard, so neither gesture gives the panel
+> anything to read. The **reliable path for Outlook is a `.eml` file:**
+> 1. In Outlook, **File → Save As → `.eml`** (or drag the message onto your
+>    Desktop to create one).
+> 2. Add it with the **📎 button** (or the Knowledge page's *Choose files*) — or
+>    just drop the `.eml` onto the panel. It's parsed into
+>    subject/sender/date/body and shown in the preview.
+>
+> For an email open in **Outlook Web**, you can instead ask the agent to "save
+> this page to my X knowledge base." Drag-and-drop of the message itself is the
+> quick path on Windows and from Apple Mail.
 
 **Index a local folder.** In **Workspace → Knowledge**, **drag a folder from
 Finder/Explorer onto the drop box**. Its files and subfolders (text, Markdown, PDF,

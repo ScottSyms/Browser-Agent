@@ -534,8 +534,9 @@ export function ChatPanel({
   // (Drag-and-drop is handled by the panel-wide overlay in Sidebar, which feeds
   //  `droppedItems`; the effect below consumes it.)
   const queueFiles = (files: File[]) => {
-    const items = itemsFromFiles(files);
-    if (items.length) setDropItems(items);
+    void itemsFromFiles(files).then((items) => {
+      if (items.length) setDropItems(items);
+    });
   };
 
   // Overlay-captured drop (files or an email) → open the uploader with it.

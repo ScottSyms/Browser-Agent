@@ -117,9 +117,27 @@ export async function captureDropFull(dt: DataTransfer | null): Promise<DroppedI
   return [];
 }
 
-/** Wrap plain picked files (from a file input) as DroppedItems, dropping unsupported ones. */
-export function itemsFromFiles(files: File[]): DroppedItem[] {
-  return files.filter((f) => classifyUpload(f.name, f.type)).map((file) => ({ file }));
+/**
+ * Turn picked files (from the 📎 / choose-files input) into queue items,
+ * parsing any `.eml` into an email document. Async because reading `.eml` text
+ * is async; the drag-free path for Outlook on macOS (save the message as `.eml`,
+ * then choose it here). Unsupported non-`.eml` files are dropped.
+ */
+export async function itemsFromFiles(files: File[]): Promise<DroppedItem[]> {
+  const items: DroppedItem[] = [];
+  for (const f of files) {
+    if (isEmlFile(f)) {
+      try {
+        const parsed = parseEml(await f.text());
+        if (parsed.body.trim() || parsed.subject) items.push(emailItem(parsed));
+      } catch {
+        // Unreadable .eml — skip it.
+      }
+    } else if (classifyUpload(f.name, f.type)) {
+      items.push({ file: f });
+    }
+  }
+  return items;
 }
 
 /**
